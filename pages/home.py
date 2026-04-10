@@ -102,10 +102,7 @@ def _build_menu_item(page: ft.Page, name: str, icon: str, route: str, need_actio
     icon_widget = ft.Icon(icon, size=36, color=ft.colors.BLUE_600)
     # 有待办提醒时显示红点
     if need_action:
-        icon_widget = ft.Badge(
-            content=icon_widget,
-            small_size=8,
-        )
+        icon_widget.badge = ft.Badge(small_size=8)
 
     return ft.Container(
         width=80,
@@ -270,10 +267,9 @@ async def build_home_content(page: ft.Page) -> ft.Control:
 
         # 更新消息红点
         if msg_result and msg_result.get("total", 0) > 0:
-            msg_icon_container.content = ft.Badge(
-                content=ft.Icon(ft.icons.MAIL_OUTLINE, color=ft.colors.GREY_800, size=24),
-                small_size=8,
-            )
+            msg_icon = ft.Icon(ft.icons.MAIL_OUTLINE, color=ft.colors.GREY_800, size=24)
+            msg_icon.badge = ft.Badge(small_size=8)
+            msg_icon_container.content = msg_icon
 
         # 收集需要红点的菜单名
         remind_names: set[str] = set()
