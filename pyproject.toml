@@ -1,0 +1,8 @@
+[project]
+name = "scy_flet"
+version = "1.0.0"
+description = "五位一体安全生产信息化管理平台"
+
+[tool.flet]
+org = "com.scy"
+product = "scy"
