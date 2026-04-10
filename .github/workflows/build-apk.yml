@@ -25,7 +25,7 @@ jobs:
         with:
           flutter-version: "3.24.5"
           channel: stable
-          cache: true
+          cache: false
 
       - name: Accept Android licenses
         run: yes | flutter doctor --android-licenses || true
