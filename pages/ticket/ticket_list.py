@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import traceback
 from typing import Any
 
 import flet as ft
@@ -73,7 +74,7 @@ async def build_ticket_list_page(page: ft.Page) -> ft.View:
     type_options: list[dict] = []
 
     # --- 控件 ---
-    list_column = ft.Column(spacing=0, expand=True)
+    list_column = ft.Column(spacing=0)
     loading_ring = ft.ProgressRing(width=24, height=24, visible=False)
     load_more_btn = ft.Container(visible=False)
     empty_widget = ft.Container(
@@ -97,7 +98,10 @@ async def build_ticket_list_page(page: ft.Page) -> ft.View:
             return
         is_loading[0] = True
         loading_ring.visible = True
-        await page.update_async()
+        try:
+            await page.update_async()
+        except Exception:
+            pass
 
         if reset:
             page_no[0] = 1
@@ -105,20 +109,34 @@ async def build_ticket_list_page(page: ft.Page) -> ft.View:
             list_column.controls.clear()
 
         try:
-            # 确定 API 前缀
             cfg = get_config_by_type_value(current_type_value[0])
-            api_prefix = cfg.api_prefix if cfg else "/jeecg-boot/app/ticket"
             username = app_state.user_info.get("username", "")
 
-            result = await svc.ticket_list(api_prefix, {
-                "type": current_tab[0],
-                "workType": current_type_value[0],
-                "username": username,
-                "pageNo": page_no[0],
-                "pageSize": page_size,
-            })
+            if current_tab[0] == "3":
+                # 预约待完善 → 作业申请列表
+                result = await svc.zysq_sq_list({
+                    "column": "createTime",
+                    "order": "desc",
+                    "field": "id,",
+                    "zylx": current_type_value[0] or "3",
+                    "sqStatus": 2,
+                    "pageNo": page_no[0],
+                    "pageSize": page_size,
+                })
+            else:
+                api_prefix = cfg.api_prefix if cfg else "/jeecg-boot/app/ticket"
+                result = await svc.ticket_list(api_prefix, {
+                    "type": current_tab[0],
+                    "workType": current_type_value[0],
+                    "username": username,
+                    "pageNo": page_no[0],
+                    "pageSize": page_size,
+                })
+
             records = result.get("records", []) if isinstance(result, dict) else []
             total = result.get("total", 0) if isinstance(result, dict) else 0
+            print(f"[ticket_list] tab={current_tab[0]} workType={current_type_value[0]} "
+                  f"pageNo={page_no[0]} → records={len(records)} total={total}")
 
             for item in records:
                 items_data.append(item)
@@ -126,15 +144,25 @@ async def build_ticket_list_page(page: ft.Page) -> ft.View:
 
             has_more = len(items_data) < total
             load_more_btn.visible = has_more
-            load_more_btn.content = ft.TextButton("加载更多", on_click=_on_load_more)
+            if has_more:
+                load_more_btn.content = ft.TextButton("加载更多", on_click=_on_load_more)
             empty_widget.visible = len(items_data) == 0
 
         except Exception as ex:
-            page.snack_bar = ft.SnackBar(ft.Text(f"加载失败：{ex}"), open=True)
+            traceback.print_exc()
+            print(f"[ticket_list] 加载失败：{ex}")
+            empty_widget.visible = len(items_data) == 0
+            try:
+                page.snack_bar = ft.SnackBar(ft.Text(f"加载失败：{ex}"), open=True)
+            except Exception:
+                pass
 
         is_loading[0] = False
         loading_ring.visible = False
-        await page.update_async()
+        try:
+            await page.update_async()
+        except Exception:
+            pass
 
     async def _on_load_more(e):
         page_no[0] += 1
@@ -205,32 +233,31 @@ async def build_ticket_list_page(page: ft.Page) -> ft.View:
         await _load(reset=True)
 
     # --- 类型选择 ---
-    type_popup = ft.BottomSheet(content=ft.Container(), open=False)
-
     async def _show_type_picker(e):
+        def _make_select(val, txt, sheet):
+            async def _select(ev):
+                current_type_value[0] = val
+                type_dropdown_text.value = txt
+                sheet.open = False
+                await page.update_async()
+                await _load(reset=True)
+            return _select
+
+        bs = ft.BottomSheet(content=ft.Container(), open=True)
         options = []
         for t in type_options:
-            async def _make_select(val, txt):
-                async def _select(e):
-                    current_type_value[0] = val
-                    type_dropdown_text.value = txt
-                    type_popup.open = False
-                    await page.update_async()
-                    await _load(reset=True)
-                return _select
-
             options.append(
                 ft.ListTile(
                     title=ft.Text(t["text"]),
-                    on_click=await _make_select(t["value"], t["text"]),
+                    on_click=_make_select(t["value"], t["text"], bs),
                 )
             )
-        type_popup.content = ft.Container(
+        bs.content = ft.Container(
             content=ft.Column(options, tight=True, scroll=ft.ScrollMode.AUTO),
             padding=16,
             height=400,
         )
-        type_popup.open = True
+        page.overlay.append(bs)
         await page.update_async()
 
     # --- 初始化类型列表 ---
@@ -255,7 +282,7 @@ async def build_ticket_list_page(page: ft.Page) -> ft.View:
         label_color=ft.colors.BLUE,
         unselected_label_color=ft.colors.GREY_600,
         indicator_color=ft.colors.BLUE,
-        height=42,
+        divider_color=ft.colors.GREY_200,
     )
 
     type_selector = ft.Container(
@@ -307,7 +334,7 @@ async def build_ticket_list_page(page: ft.Page) -> ft.View:
                 ),
             ],
         ),
-        controls=[body, type_popup],
+        controls=[body],
         padding=0,
         bgcolor=ft.colors.GREY_100,
     )
