@@ -6,6 +6,8 @@ import asyncio
 
 import flet as ft
 
+from components.scroll_helper import apply_no_bounce
+
 from services import train_service as ts
 from components.status_badge import status_badge
 from components.detail_page import detail_section
@@ -205,6 +207,7 @@ async def build_online_learn_view(page: ft.Page) -> ft.View:
         ],
         expand=True,
     )
+    apply_no_bounce(scroll_content)
 
     body = ft.Column(controls=[filter_bar, scroll_content], spacing=0, expand=True)
 
@@ -261,13 +264,21 @@ async def build_learn_detail_view(page: ft.Page, material_id: str) -> ft.View:
         if not files and url:
             # 单文件模式
             files = [{"name": info_data[0].get("zlbt", "文件"), "path": url}]
+        # 资料的预览基地址（不同租户/部署可能不同）
+        preview_base = info_data[0].get("url", "/preview/onlinePreview")
         for f in files:
             def _make_open(file_info):
                 async def _open(e):
+                    from urllib.parse import quote as _q
                     selected_file[0] = file_info
-                    # 打开文件链接
-                    file_url = f"{app_config.host}{file_info.get('path', '')}"
-                    await page.launch_url_async(file_url)
+                    fp = file_info.get("path", "")
+                    fname = file_info.get("name", file_info.get("text", "文件"))
+                    # 在 App 内 WebView/Video 打开，避免跳系统浏览器或触发下载
+                    page.go(
+                        f"/train/file_viewer?path={_q(fp, safe='')}"
+                        f"&title={_q(fname, safe='')}"
+                        f"&base={_q(preview_base, safe='')}"
+                    )
                 return _open
 
             file_list_column.controls.append(
@@ -511,6 +522,7 @@ async def build_training_task_view(page: ft.Page) -> ft.View:
         ],
         expand=True,
     )
+    apply_no_bounce(scroll_content)
 
     body = ft.Column(controls=[scroll_content], spacing=0, expand=True)
 

@@ -6,6 +6,8 @@ import asyncio
 
 import flet as ft
 
+from components.scroll_helper import apply_no_bounce
+
 from services import train_service as ts
 from components.detail_page import detail_section
 from components.form_fields import readonly_field
@@ -153,6 +155,7 @@ async def build_online_learn_new_view(page: ft.Page) -> ft.View:
         ],
         expand=True,
     )
+    apply_no_bounce(scroll_content)
 
     body = ft.Column(controls=[search_bar, scroll_content], spacing=0, expand=True)
 
@@ -216,9 +219,13 @@ async def build_learn_detail_new_view(page: ft.Page, record_id: str) -> ft.View:
 
             def _make_open(path, fname):
                 async def _open(e):
+                    from urllib.parse import quote as _q
                     selected_file[0] = {"path": path, "name": fname}
-                    file_url = f"{app_config.host}/{path}" if not path.startswith("/") else f"{app_config.host}{path}"
-                    await page.launch_url_async(file_url)
+                    # 在 App 内 WebView/Video 打开，对齐 uniapp learnDetailNew.vue 的 kkFileView 预览
+                    page.go(
+                        f"/train/file_viewer?path={_q(path, safe='')}"
+                        f"&title={_q(fname, safe='')}"
+                    )
                 return _open
 
             file_list_column.controls.append(

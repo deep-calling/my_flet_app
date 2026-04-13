@@ -6,6 +6,8 @@ from typing import Any
 
 import flet as ft
 
+from components.scroll_helper import apply_no_bounce
+
 from services import ticket_service as svc
 from utils.app_state import app_state
 
@@ -398,6 +400,7 @@ async def build_ticket_apply_page(page: ft.Page) -> ft.View:
         ],
         expand=True,
     )
+    apply_no_bounce(scroll_content)
 
     view = ft.View(
         route="/ticket/apply",

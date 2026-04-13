@@ -519,6 +519,17 @@ async def _main_inner(page: ft.Page):
             page.views.append(_build_placeholder_tabbar_view(0))
             page.views.append(await build_offline_train_detail_view(page, tid, sign=sign))
 
+        # 资料预览（培训文档/视频在 App 内浏览）
+        elif route == "/train/file_viewer":
+            from pages.train.file_viewer import build_file_viewer_view
+            fp = qparams.get("path", "")
+            ftitle = qparams.get("title", "资料预览")
+            base = qparams.get("base", "/preview/onlinePreview")
+            page.views.append(_build_placeholder_tabbar_view(0))
+            page.views.append(await build_file_viewer_view(
+                page, file_path=fp, title=ftitle, preview_base=base,
+            ))
+
         # 学习资料列表
         elif route == "/train/materials":
             from pages.train import build_online_learn_view

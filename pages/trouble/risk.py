@@ -11,6 +11,27 @@ from components.form_fields import readonly_field
 from components.status_badge import status_badge
 
 
+def _kv_row(label: str, value: str, value_max_lines: int = 2) -> ft.Control:
+    """列表项中 "标签：值" 单行。标签定宽，值省略溢出。"""
+    return ft.Row(
+        controls=[
+            ft.Text(
+                f"{label}：",
+                size=13, color=ft.colors.GREY_700, width=110,
+                no_wrap=True,
+            ),
+            ft.Text(
+                value or "-",
+                size=13, color=ft.colors.GREY_800,
+                expand=True, max_lines=value_max_lines,
+                overflow=ft.TextOverflow.ELLIPSIS,
+            ),
+        ],
+        spacing=4,
+        vertical_alignment=ft.CrossAxisAlignment.START,
+    )
+
+
 # ============================================================
 # 风险分析对象
 # ============================================================
@@ -111,21 +132,10 @@ async def build_risk_unit_view(page: ft.Page) -> ft.View:
         return ft.Container(
             content=ft.Column(
                 controls=[
-                    ft.Text(
-                        item.get("riskAnalysisUnitName", ""),
-                        size=15, weight=ft.FontWeight.W_500,
-                        max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
-                    ),
-                    ft.Text(
-                        f"所属对象：{item.get('riskAnalysisObjectId_dictText', '-')}",
-                        size=12, color=ft.colors.GREY_500,
-                    ),
-                    ft.Text(
-                        f"风险等级：{item.get('riskLevel_dictText', '-')}",
-                        size=12, color=ft.colors.GREY_500,
-                    ),
+                    _kv_row("风险分析对象名称", item.get("riskAnalysisObjectId_dictText", "")),
+                    _kv_row("风险分析单元名称", item.get("riskAnalysisUnitName", "")),
                 ],
-                spacing=4,
+                spacing=6,
             ),
             padding=ft.padding.symmetric(horizontal=16, vertical=12),
             bgcolor=ft.colors.WHITE,
@@ -179,21 +189,13 @@ async def build_risk_event_view(page: ft.Page) -> ft.View:
         return ft.Container(
             content=ft.Column(
                 controls=[
-                    ft.Text(
-                        item.get("riskAnalysisEventName", item.get("eventName", "")),
-                        size=15, weight=ft.FontWeight.W_500,
-                        max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
-                    ),
-                    ft.Text(
-                        f"所属单元：{item.get('riskAnalysisUnitId_dictText', '-')}",
-                        size=12, color=ft.colors.GREY_500,
-                    ),
-                    ft.Text(
-                        f"风险等级：{item.get('riskLevel_dictText', '-')}",
-                        size=12, color=ft.colors.GREY_500,
+                    _kv_row("风险分析单元名称", item.get("riskAnalysisUnitId_dictText", "")),
+                    _kv_row(
+                        "风险分析事件名称",
+                        item.get("riskEventName", item.get("riskAnalysisEventName", "")),
                     ),
                 ],
-                spacing=4,
+                spacing=6,
             ),
             padding=ft.padding.symmetric(horizontal=16, vertical=12),
             bgcolor=ft.colors.WHITE,
@@ -227,23 +229,12 @@ async def build_risk_measure_view(page: ft.Page) -> ft.View:
         return ft.Container(
             content=ft.Column(
                 controls=[
-                    ft.Row([
-                        ft.Text(
-                            item.get("manageMeasureCode", ""),
-                            size=15, weight=ft.FontWeight.W_500,
-                            expand=True, max_lines=1,
-                            overflow=ft.TextOverflow.ELLIPSIS,
-                        ),
-                        status_badge(item.get("riskLevel_dictText", ""))
-                        if item.get("riskLevel_dictText") else ft.Container(),
-                    ]),
-                    ft.Text(
-                        item.get("manageMeasureDesc", "-"),
-                        size=13, color=ft.colors.GREY_600,
-                        max_lines=2, overflow=ft.TextOverflow.ELLIPSIS,
-                    ),
+                    _kv_row("风险分析单元名称", item.get("riskAnalysisUnitId_dictText", "")),
+                    _kv_row("风险分析事件名称", item.get("riskAnalysisEventId_dictText", "")),
+                    _kv_row("管控措施描述", item.get("manageMeasureDesc", ""), value_max_lines=3),
+                    _kv_row("隐患排查内容", item.get("hiddenDangerCheckContent", ""), value_max_lines=3),
                 ],
-                spacing=4,
+                spacing=6,
             ),
             padding=ft.padding.symmetric(horizontal=16, vertical=12),
             bgcolor=ft.colors.WHITE,

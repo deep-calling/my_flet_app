@@ -6,6 +6,8 @@ from datetime import datetime
 
 import flet as ft
 
+from components.scroll_helper import apply_no_bounce
+
 from services import inspection_service as ins
 from components.detail_page import detail_section
 from components.form_fields import readonly_field, textarea_field
@@ -194,6 +196,7 @@ async def build_tasks_view(page: ft.Page) -> ft.View:
         ],
         expand=True,
     )
+    apply_no_bounce(scroll_content)
 
     body = ft.Column(controls=[search_bar, tabs, scroll_content], spacing=0, expand=True)
 

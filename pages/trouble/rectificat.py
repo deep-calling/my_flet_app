@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import flet as ft
 
+from components.scroll_helper import apply_no_bounce
+
 from services import trouble_service as ts
 from components.detail_page import build_detail_page, detail_section
 from components.form_fields import (
@@ -63,8 +65,10 @@ async def build_rectificat_view(page: ft.Page, module_type: str = "trouble") -> 
 
         try:
             biz_type = _RECT_TABS[current_tab[0]][1]
+            # taskType 区分模块：隐患整改=0，包保责任制整改=1。缺失会导致后端返回数据不符预期。
             result = await ts.get_rect_list({
                 "bizTaskType": biz_type,
+                "taskType": 1 if is_bbzrz else 0,
                 "pageNo": current_page[0],
                 "pageSize": page_size,
             })
@@ -165,6 +169,7 @@ async def build_rectificat_view(page: ft.Page, module_type: str = "trouble") -> 
         ],
         expand=True,
     )
+    apply_no_bounce(scroll_content)
 
     body = ft.Column(controls=[tabs, scroll_content], spacing=0, expand=True)
 
@@ -415,14 +420,16 @@ async def build_rectificat_add_view(
     page: ft.Page, module_type: str = "trouble"
 ) -> ft.View:
     """新增隐患整改表单页。"""
-    title = "新增隐患整改"
+    is_bbzrz = module_type == "bbzrz"
+    title = "新增包保责任制整改" if is_bbzrz else "新增隐患整改"
 
-    # 表单数据
+    # 表单数据；taskType 区分模块，后端需要此字段区分普通隐患/包保
     form = {
         "zgbt": "", "riskAnalysisObjectId": "", "riskManageMeasureId": "",
         "yhjb": "", "djsj": "", "fxr": "", "jclyfl": "",
         "zllx": "", "zyfl": "", "yhms": "", "zrr": "",
         "yqzgwcrq": "", "bz": "",
+        "taskType": 1 if is_bbzrz else 0,
     }
 
     # 字典选项

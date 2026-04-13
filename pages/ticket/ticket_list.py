@@ -6,6 +6,8 @@ from typing import Any
 
 import flet as ft
 
+from components.scroll_helper import apply_no_bounce
+
 from pages.ticket.config import TICKET_TYPES, get_config_by_type_value
 from services import ticket_service as svc
 from utils.app_state import app_state
@@ -283,6 +285,7 @@ async def build_ticket_list_page(page: ft.Page) -> ft.View:
         ],
         expand=True,
     )
+    apply_no_bounce(scroll_content)
 
     body = ft.Column(
         controls=[tabs, type_selector, scroll_content],

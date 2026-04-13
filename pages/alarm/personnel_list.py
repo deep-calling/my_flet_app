@@ -58,8 +58,10 @@ async def build_personnel_alarm_view(page: ft.Page) -> ft.View:
 
     async def _on_tab_change(e):
         current_tab[0] = tabs.selected_index
-        # 触发重新搜索 — 通过重建 view
-        page.go(page.route)
+        # 复用 build_list_page 暴露的 reload，避免重建 view 导致 tab 状态被重置
+        reload_fn = getattr(view, "reload", None)
+        if reload_fn is not None:
+            await reload_fn()
 
     tabs.on_change = _on_tab_change
 

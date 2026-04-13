@@ -187,6 +187,20 @@ async def build_list_page(
         )
 
     # --- 组装页面 ---
+    from components.scroll_helper import apply_no_bounce
+
+    async def _on_list_scroll(e: ft.OnScrollEvent):
+        """滚动到底部时自动触发加载更多。"""
+        pixels = e.pixels or 0
+        max_ext = e.max_scroll_extent or 0
+        if (
+            max_ext > 0
+            and max_ext - pixels <= 80
+            and load_more_btn.visible
+            and not is_loading[0]
+        ):
+            await _on_load_more(e)
+
     scroll_content = ft.ListView(
         controls=[
             list_column,
@@ -202,7 +216,10 @@ async def build_list_page(
         ],
         expand=True,
         padding=0,
+        on_scroll=_on_list_scroll,
+        on_scroll_interval=100,
     )
+    apply_no_bounce(scroll_content)
 
     body = ft.Column(
         controls=[search_bar, filter_bar, scroll_content],

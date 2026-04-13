@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import flet as ft
 
+from components.scroll_helper import apply_no_bounce
+
 from services import train_service as ts
 from components.detail_page import detail_section
 from components.form_fields import readonly_field
@@ -279,6 +281,7 @@ async def build_exam_info_view(
         expand=True,
         padding=ft.padding.all(8),
     )
+    apply_no_bounce(scroll_content)
 
     view = ft.View(
         route="/train/info",

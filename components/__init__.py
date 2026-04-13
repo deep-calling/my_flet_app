@@ -11,6 +11,7 @@ from components.form_fields import (
     readonly_field,
 )
 from components.list_page import build_list_page
+from components.scroll_helper import apply_no_bounce
 from components.detail_page import build_detail_page, detail_section
 from components.image_upload import ImageUpload
 from components.sign_pad import SignPad
@@ -26,6 +27,7 @@ __all__ = [
     "textarea_field",
     "readonly_field",
     "build_list_page",
+    "apply_no_bounce",
     "build_detail_page",
     "detail_section",
     "ImageUpload",

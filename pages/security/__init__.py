@@ -528,10 +528,24 @@ async def build_risk_area_detail_view(page: ft.Page, record_id: str) -> ft.View:
             except (ValueError, TypeError):
                 r_value = "-"
 
+        # 固有风险等级章节：含分析方法原则与计算公式（对齐 uniapp）
+        principle_text = (
+            "分析方法原则：\n"
+            "企业根据区域内事故发生的可能性 L 值和事故后果的严重性 S 值，"
+            "计算风险 R 值，确定区域固有风险等级\n\n"
+            "计算公式：\nR = L * S"
+        )
         sections.append(detail_section("固有风险等级", [
-            readonly_field("L值", str(lvalue or "-")),
-            readonly_field("S值", str(svalue or "-")),
-            readonly_field("R值", r_value or "-"),
+            ft.Container(
+                content=ft.Text(
+                    principle_text,
+                    size=13, color=ft.colors.GREY_700, selectable=True,
+                ),
+                padding=ft.padding.symmetric(horizontal=16, vertical=12),
+            ),
+            readonly_field("L 值分析 L 值为", str(lvalue or "-")),
+            readonly_field("S 值分析 S 值为", str(svalue or "-")),
+            readonly_field("R 值为", r_value or "-"),
             readonly_field("固有风险等级", str(data.get("gyfxdj_dictText", "") or "-")),
         ]))
 

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import flet as ft
+
+from components.scroll_helper import apply_no_bounce
 from datetime import datetime
 
 from services import trouble_service as ts
@@ -214,6 +216,7 @@ async def build_handle_view(
         ],
         expand=True,
     )
+    apply_no_bounce(scroll_content)
 
     view = ft.View(
         route=f"/{module_type}/handle",

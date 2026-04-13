@@ -341,12 +341,56 @@ def get_all_fields(config: TicketTypeConfig) -> list[FieldDef]:
 
 
 def get_detail_display_fields(config: TicketTypeConfig) -> list[FieldDef]:
-    """获取详情页展示字段（比表单字段更全，含只读额外字段）"""
+    """获取详情页展示字段（比表单字段更全，含只读额外字段）。
+    动火作业按 uniapp info.vue 的显示顺序重排，其他类型沿用表单顺序。"""
     base = get_all_fields(config)
-    # 动火作业有额外的详情展示字段
-    if config.code == "DH":
-        return base + DH_DETAIL_EXTRA_FIELDS
-    return base
+    if config.code != "DH":
+        return base
+
+    # 动火详情按 uniapp 展示顺序重排
+    pool: dict[str, FieldDef] = {f.key: f for f in base + DH_DETAIL_EXTRA_FIELDS}
+
+    def _pop(key: str, label: str | None = None) -> FieldDef:
+        f = pool.pop(key, None)
+        if f is not None:
+            return f
+        return FieldDef(key=key, label=label or key, widget="input", required=False)
+
+    ordered = [
+        _pop("sqdw", "申请单位"),
+        _pop("sqr", "申请人"),
+        _pop("createTime", "作业申请时间"),
+        _pop("zyzbh", "作业证编号"),
+        _pop("zyjb", "作业级别"),
+        _pop("zynr", "作业内容"),
+        _pop("zydd", "动火地点及动火部位"),
+        _pop("zyfs", "动火方式"),
+        _pop("zyr", "动火人"),
+        _pop("dhzsbh", "动火人证书编号"),
+        _pop("sgdw", "作业单位"),
+        _pop("zyfzr", "作业负责人"),
+        _pop("sjdqttszy", "关联的其他特殊作业"),
+        _pop("sjdqttszyaqzyzbh", "关联的其他特殊作业证编号"),
+        _pop("whbs", "风险辨识结果"),
+        _pop("startTime", "动火作业实施开始时间"),
+        _pop("dhEndTime", "动火作业实施结束时间"),
+        _pop("time", "作业时间（s）"),
+        _pop("sfxyaqjc", "是否需要动火分析"),
+        _pop("aqjcr", "动火分析人"),
+        _pop("qtaqcsbzr", "其他安全措施编制人"),
+        _pop("aqjdr", "安全交底人"),
+        _pop("jsjdr", "接受交底人"),
+        _pop("jhr", "监护人"),
+        _pop("jhrzsbh", "监护人证书编号"),
+        _pop("szdw", "所在单位负责人"),
+        _pop("aqglbm", "安全管理部门"),
+        _pop("zyspr", "动火审批人"),
+        _pop("dhqgwdbbcyp", "动火前，岗位顶班班长验票"),
+        _pop("ysr", "验收人"),
+    ]
+    # 保留未枚举到的其他字段（如摄像头选择等），追加在末尾
+    ordered.extend(pool.values())
+    return ordered
 
 
 # 详情页 6 宫格步骤定义

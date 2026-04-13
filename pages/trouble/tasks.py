@@ -4,6 +4,8 @@ trouble / bbzrz 共用，通过 module_type 参数区分"""
 from __future__ import annotations
 
 import flet as ft
+
+from components.scroll_helper import apply_no_bounce
 from datetime import datetime
 
 from services import trouble_service as ts
@@ -193,6 +195,7 @@ async def build_tasks_view(page: ft.Page, module_type: str = "trouble") -> ft.Vi
         ],
         expand=True,
     )
+    apply_no_bounce(scroll_content)
 
     body = ft.Column(controls=[tabs, scroll_content], spacing=0, expand=True)
 
@@ -803,6 +806,7 @@ async def build_task_item_list_view(
         ],
         expand=True,
     )
+    apply_no_bounce(scroll_content)
 
     body = ft.Column(
         controls=[item_selector, scroll_content],

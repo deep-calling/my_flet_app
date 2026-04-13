@@ -266,6 +266,46 @@ async def build_ticket_detail_page(
         return ft.ListView(controls=rows, expand=True, spacing=0)
 
     # --- 安全分析 ---
+    async def _show_detection_detail(insp: dict):
+        """动火分析项详情弹框（只读）。"""
+        sign_path = insp.get("signArea", "")
+        sign_widget: ft.Control
+        if sign_path:
+            sign_src = (
+                sign_path if sign_path.startswith("http")
+                else f"{app_state.host}/jeecg-boot/sys/common/static/{sign_path}"
+            )
+            sign_widget = ft.Image(src=sign_src, height=80, fit=ft.ImageFit.CONTAIN)
+        else:
+            sign_widget = ft.Text("未签名", size=12, color=ft.colors.GREY_500)
+
+        dlg = ft.AlertDialog(
+            title=ft.Text(f"分析点：{insp.get('fxdmc', '')}"),
+            content=ft.Container(
+                width=320,
+                content=ft.Column(
+                    controls=[
+                        readonly_field("分析人", str(insp.get("fxrName", "") or "-")),
+                        readonly_field("代表性气体", str(insp.get("dbxqt", "") or "-")),
+                        readonly_field("分析结果 / %", str(insp.get("fxjg", "") or "-")),
+                        readonly_field("结果备注", str(insp.get("remark", "") or "-")),
+                        readonly_field("提交时间", str(insp.get("submitTime", "") or "-")),
+                        ft.Text("分析人签字", size=13, weight=ft.FontWeight.W_500),
+                        sign_widget,
+                    ],
+                    tight=True, spacing=6,
+                ),
+            ),
+            actions=[ft.TextButton("关闭", on_click=lambda e: _close_dialog(dlg))],
+        )
+        page.dialog = dlg
+        dlg.open = True
+        await page.update_async()
+
+    def _close_dialog(dlg):
+        dlg.open = False
+        page.update()
+
     async def _build_detection_section() -> ft.Control:
         """安全分析步骤"""
         permissions = False
@@ -292,6 +332,11 @@ async def build_ticket_detail_page(
         else:
             rows = []
             for insp in items:
+                def _make_detection_click(data):
+                    async def _click(e):
+                        await _show_detection_detail(data)
+                    return _click
+
                 rows.append(
                     ft.Container(
                         content=ft.Column([
@@ -305,6 +350,8 @@ async def build_ticket_detail_page(
                         bgcolor=ft.colors.GREY_50,
                         border_radius=8,
                         margin=ft.margin.only(bottom=8),
+                        on_click=_make_detection_click(insp),
+                        ink=True,
                     )
                 )
 
@@ -385,22 +432,65 @@ async def build_ticket_detail_page(
             else:
                 status_text = "待确认"
                 status_color = ft.colors.ORANGE
+
+            # 签名图片（对齐 uniapp：有 signArea 时展示签名）
+            sign_controls: list[ft.Control] = []
+            if sign_area:
+                sign_src = (
+                    sign_area if sign_area.startswith("http")
+                    else f"{app_state.host}/jeecg-boot/sys/common/static/{sign_area}"
+                )
+                sign_controls.append(
+                    ft.Row(
+                        controls=[
+                            ft.Text("签名：", size=11, color=ft.colors.GREY_600),
+                            ft.Image(src=sign_src, height=40, fit=ft.ImageFit.CONTAIN),
+                        ],
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        spacing=4,
+                    )
+                )
+                sign_time = m.get("updateTime") or m.get("signTime", "")
+                if sign_time:
+                    sign_controls.append(
+                        ft.Text(f"签字时间：{sign_time}", size=11, color=ft.colors.GREY_500)
+                    )
+
+            def _make_measure_click(item_data):
+                async def _click(e):
+                    if disabled:
+                        return
+                    # 无操作权限时提示（对齐用户预期）
+                    has_flag = bool(item_data.get("flag", True))
+                    if not has_flag:
+                        page.snack_bar = ft.SnackBar(ft.Text("暂无操作权限"), open=True)
+                        await page.update_async()
+                        return
+                    await _go_measure_sign(item_data)
+                return _click
+
             rows.append(
                 ft.Container(
-                    content=ft.Row([
-                        ft.Text(m.get("aqcs", ""), size=12, expand=True),
-                        ft.Container(
-                            content=ft.Text(status_text, size=11, color=ft.colors.WHITE),
-                            bgcolor=status_color,
-                            border_radius=4,
-                            padding=ft.padding.symmetric(horizontal=6, vertical=2),
-                        ),
-                    ]),
+                    content=ft.Column(
+                        controls=[
+                            ft.Row([
+                                ft.Text(m.get("aqcs", ""), size=12, expand=True),
+                                ft.Container(
+                                    content=ft.Text(status_text, size=11, color=ft.colors.WHITE),
+                                    bgcolor=status_color,
+                                    border_radius=4,
+                                    padding=ft.padding.symmetric(horizontal=6, vertical=2),
+                                ),
+                            ]),
+                            *sign_controls,
+                        ],
+                        spacing=4,
+                    ),
                     padding=12,
                     bgcolor=ft.colors.GREY_50,
                     border_radius=8,
                     margin=ft.margin.only(bottom=4),
-                    on_click=lambda e, item=m: _go_measure_sign(item) if not disabled else None,
+                    on_click=_make_measure_click(m),
                     ink=not disabled,
                 )
             )
@@ -444,12 +534,23 @@ async def build_ticket_detail_page(
                     subtitle_parts.append(update_time)
                 subtitle_parts.append(p_status_text)
 
+                def _make_confess_click(person_data):
+                    async def _click(e):
+                        # 已签名或步骤已完成：静默（只查看）
+                        if str(person_data.get("status")) == "2" or disabled:
+                            return
+                        if not person_data.get("flag"):
+                            page.snack_bar = ft.SnackBar(ft.Text("暂无操作权限"), open=True)
+                            await page.update_async()
+                            return
+                        await _go_confess_sign(person_data)
+                    return _click
+
                 person_tiles.append(
                     ft.ListTile(
                         title=ft.Text(p.get("personText", ""), size=13),
                         subtitle=ft.Text(" ".join(subtitle_parts), size=11, color=p_color),
-                        on_click=lambda e, person=p: _go_confess_sign(person)
-                        if p.get("flag") and str(person.get("status")) != "2" and not disabled else None,
+                        on_click=_make_confess_click(p),
                     )
                 )
 
@@ -525,12 +626,22 @@ async def build_ticket_detail_page(
                     subtitle_parts.append(apply_time)
                 subtitle_parts.append(p_status_text)
 
+                def _make_approve_click(person_data):
+                    async def _click(e):
+                        if str(person_data.get("status")) == "2" or disabled:
+                            return
+                        if not person_data.get("flag"):
+                            page.snack_bar = ft.SnackBar(ft.Text("暂无操作权限"), open=True)
+                            await page.update_async()
+                            return
+                        await _go_approve_sign(person_data)
+                    return _click
+
                 person_tiles.append(
                     ft.ListTile(
                         title=ft.Text(p.get("personText", ""), size=13),
                         subtitle=ft.Text(" ".join(subtitle_parts), size=11, color=p_color),
-                        on_click=lambda e, person=p: _go_approve_sign(person)
-                        if p.get("flag") and str(person.get("status")) != "2" and not disabled else None,
+                        on_click=_make_approve_click(p),
                     )
                 )
 
@@ -656,12 +767,22 @@ async def build_ticket_detail_page(
                     subtitle_parts.append(sign_time)
                 subtitle_parts.append(p_status_text)
 
+                def _make_acceptance_click(person_data):
+                    async def _click(e):
+                        if str(person_data.get("status")) == "2" or disabled:
+                            return
+                        if not person_data.get("flag"):
+                            page.snack_bar = ft.SnackBar(ft.Text("暂无操作权限"), open=True)
+                            await page.update_async()
+                            return
+                        await _go_acceptance_sign(person_data)
+                    return _click
+
                 person_tiles.append(
                     ft.ListTile(
                         title=ft.Text(p.get("personText", ""), size=13),
                         subtitle=ft.Text(" ".join(subtitle_parts), size=11, color=p_color),
-                        on_click=lambda e, person=p: _go_acceptance_sign(person)
-                        if p.get("flag") and str(person.get("status")) != "2" and not disabled else None,
+                        on_click=_make_acceptance_click(p),
                     )
                 )
 

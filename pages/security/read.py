@@ -6,6 +6,8 @@ from typing import Any
 
 import flet as ft
 
+from components.scroll_helper import apply_no_bounce
+
 from services import security_service as ss
 from components.form_fields import (
     form_item, text_field, radio_field, dropdown_field, date_field, readonly_field,
@@ -200,6 +202,7 @@ async def build_read_list_view(page: ft.Page) -> ft.View:
         ],
         expand=True,
     )
+    apply_no_bounce(scroll_content)
 
     body = ft.Column(
         controls=[tabs, filter_bar, scroll_content],

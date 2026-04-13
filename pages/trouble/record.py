@@ -6,6 +6,8 @@ from datetime import datetime
 
 import flet as ft
 
+from components.scroll_helper import apply_no_bounce
+
 from services import trouble_service as ts
 from components.status_badge import status_badge
 
@@ -233,6 +235,7 @@ async def build_record_view(page: ft.Page, module_type: str = "trouble") -> ft.V
         ],
         expand=True,
     )
+    apply_no_bounce(scroll_content)
 
     view = ft.View(
         route=f"/{module_type}/record",

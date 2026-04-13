@@ -6,6 +6,8 @@ from datetime import datetime
 
 import flet as ft
 
+from components.scroll_helper import apply_no_bounce
+
 from services import train_service as ts
 from components.status_badge import status_badge
 
@@ -199,6 +201,7 @@ async def build_test_view(page: ft.Page) -> ft.View:
         ],
         expand=True,
     )
+    apply_no_bounce(scroll_content)
 
     body = ft.Column(controls=[tabs, search_bar, scroll_content], spacing=0, expand=True)
 
