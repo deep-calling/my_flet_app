@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import datetime
 from typing import Any
 
 import flet as ft
@@ -12,9 +13,6 @@ from pages.ticket.config import (
 )
 from services import ticket_service as svc
 from utils.app_state import app_state
-from components.form_fields import (
-    text_field, dropdown_field, radio_field, date_field, form_item,
-)
 
 
 async def build_ticket_add_page(
@@ -39,7 +37,6 @@ async def build_ticket_add_page(
 
     # --- 表单数据 ---
     form_data: dict[str, Any] = {"type": type_value}
-    # 设置分析字段默认值
     for f in all_fields:
         if f.widget == "radio" and f.radio_options:
             form_data[f.key] = config.analysis_default
@@ -48,17 +45,17 @@ async def build_ticket_add_page(
     sources: dict[str, list[dict]] = {
         "departs": [],
         "peoples": [],
+        "peoplesZS": [],   # 作业人（有证书人员列表）
+        "peoplesZSs": [],  # 动火人证书编号（基于作业人动态加载）
         "cameras": [],
         "typeList": [],
         "qttsywbhs": [],
-        "peoplesZSs": [],
         "zyjbs": [],
         "zylxs": [],
     }
 
-    # --- 控件引用 ---
     form_column = ft.Column(spacing=0, scroll=ft.ScrollMode.AUTO, expand=True)
-    field_controls: dict[str, ft.Container] = {}  # key -> Container 用于条件显示
+    field_controls: dict[str, ft.Container] = {}
 
     # --- 辅助：扁平化部门树 ---
     def _flatten_departs(tree: dict, result: list):
@@ -72,55 +69,106 @@ async def build_ticket_add_page(
 
     # --- 加载数据源（并行） ---
     async def _load_sources():
+        zyjb_dict = config.zyjb_dict or "ticket_zyjb"
         results = await asyncio.gather(
             svc.get_depart_list(),
             svc.get_people_list(),
             svc.get_camera_list(),
             svc.get_dict_work_type(),
-            svc.get_qttszyzbh_list(type_value),
-            svc.get_dict_items("ticket_zyjb"),
+            svc.get_dict_items(zyjb_dict),
             svc.get_dict_items("mbcd_zylx"),
             svc.get_people_zs_list(type_value),
             return_exceptions=True,
         )
         (depart_result, people_result, camera_result, type_result,
-         zbh_result, zyjb_result, zylx_result, zs_result) = results
+         zyjb_result, zylx_result, zs_result) = results
 
-        # 部门
         if isinstance(depart_result, list) and depart_result:
             flat: list[dict] = []
             _flatten_departs(depart_result[0], flat)
             sources["departs"] = flat
 
-        # 人员
         if isinstance(people_result, dict):
             records = people_result.get("records", [])
-            sources["peoples"] = [{"id": r["id"], "text": r.get("xm", ""), "value": r["id"]} for r in records]
+            sources["peoples"] = [
+                {"id": r["id"], "text": r.get("xm", ""), "value": r["id"]}
+                for r in records
+            ]
 
-        # 摄像头
         if isinstance(camera_result, list):
-            sources["cameras"] = [{"id": r["id"], "text": r.get("cameraCode", ""), "value": r["id"]} for r in camera_result]
+            sources["cameras"] = [
+                {"id": r["id"], "text": r.get("cameraCode", ""), "value": r["id"]}
+                for r in camera_result
+            ]
 
-        # 作业类型列表
         if isinstance(type_result, list):
-            sources["typeList"] = [{"text": r.get("text", ""), "value": r.get("value", "")} for r in type_result]
+            sources["typeList"] = [
+                {"text": r.get("text", ""), "value": r.get("value", "")}
+                for r in type_result
+            ]
 
-        # 其他特殊作业证编号
-        if isinstance(zbh_result, list):
-            sources["qttsywbhs"] = [{"text": r.get("text", r.get("zyzbh", "")), "value": r.get("value", r.get("id", ""))} for r in zbh_result]
-
-        # 作业级别字典
         if isinstance(zyjb_result, list):
-            sources["zyjbs"] = [{"text": r.get("text", ""), "value": r.get("value", "")} for r in zyjb_result]
+            sources["zyjbs"] = [
+                {"text": r.get("text", ""), "value": r.get("value", "")}
+                for r in zyjb_result
+            ]
 
-        # 盲板作业类别
         if isinstance(zylx_result, list):
-            sources["zylxs"] = [{"text": r.get("text", ""), "value": r.get("value", "")} for r in zylx_result]
+            sources["zylxs"] = [
+                {"text": r.get("text", ""), "value": r.get("value", "")}
+                for r in zylx_result
+            ]
 
-        # 证书列表
         if isinstance(zs_result, dict):
             records_zs = zs_result.get("records", [])
-            sources["peoplesZSs"] = [{"id": r["id"], "text": r.get("xm", ""), "value": r["id"]} for r in records_zs]
+            sources["peoplesZS"] = [
+                {"id": r["id"], "text": r.get("xm", ""), "value": r["id"]}
+                for r in records_zs
+            ]
+
+    # --- 根据作业人 ID 加载证书编号列表 ---
+    async def _reload_people_zss():
+        ids = form_data.get("zyr", "")
+        if not ids:
+            sources["peoplesZSs"] = []
+            return
+        try:
+            result = await svc.get_user_zs(type_value, ids)
+            if isinstance(result, list):
+                sources["peoplesZSs"] = [
+                    {
+                        "id": r.get("zsId", ""),
+                        "text": r.get("zs", ""),
+                        "value": r.get("zsId", ""),
+                    }
+                    for r in result
+                ]
+            else:
+                sources["peoplesZSs"] = []
+        except Exception:
+            sources["peoplesZSs"] = []
+
+    # --- 根据"涉及的其他特殊作业"加载证编号 ---
+    async def _reload_qttsywbhs():
+        zylb = form_data.get("sjdqttszy", "")
+        if not zylb:
+            sources["qttsywbhs"] = []
+            return
+        try:
+            result = await svc.get_qttszyzbh_list(zylb)
+            if isinstance(result, list):
+                sources["qttsywbhs"] = [
+                    {
+                        "id": r.get("text", ""),
+                        "text": r.get("text", ""),
+                        "value": r.get("text", ""),
+                    }
+                    for r in result
+                ]
+            else:
+                sources["qttsywbhs"] = []
+        except Exception:
+            sources["qttsywbhs"] = []
 
     # --- 加载已有数据（编辑模式）---
     async def _load_existing():
@@ -134,41 +182,220 @@ async def build_ticket_add_page(
                 for key, val in data.items():
                     if val:
                         form_data[key] = val
+                # 编辑模式：同步加载动态数据源
+                await _reload_people_zss()
+                await _reload_qttsywbhs()
         except Exception:
             pass
 
-    # --- 多选弹窗 ---
-    async def _show_multi_select(field_key: str, source_key: str, title: str):
-        """弹出多选对话框"""
-        options = sources.get(source_key, [])
-        selected = set(str(form_data.get(field_key, "")).split(",")) if form_data.get(field_key) else set()
+    # --- 字段联动：选中确认后触发 ---
+    async def _on_field_change(field_key: str):
+        if field_key == "zyr":
+            form_data["dhzsbh"] = ""
+            await _reload_people_zss()
+            _refresh_field_display("dhzsbh")
+        elif field_key == "sjdqttszy":
+            tail_key = "qttsywbh" if config.code == "DH" else "sjdqttszyaqzyzbh"
+            form_data[tail_key] = ""
+            await _reload_qttsywbhs()
+            _refresh_field_display(tail_key)
 
-        checkboxes: list[ft.Checkbox] = []
-        for opt in options:
-            cb = ft.Checkbox(
-                label=opt["text"],
-                value=str(opt["value"]) in selected,
-                data=str(opt["value"]),
-            )
-            checkboxes.append(cb)
+    # --- 多选弹窗（带搜索） ---
+    async def _show_multi_select(field_key: str, source_key: str, title: str):
+        options = sources.get(source_key, [])
+        selected: set[str] = set(
+            s for s in str(form_data.get(field_key, "")).split(",") if s
+        )
+
+        list_column = ft.Column(scroll=ft.ScrollMode.AUTO, tight=True, spacing=0)
+
+        def _make_on_cb(val: str):
+            def _on(e):
+                if e.control.value:
+                    selected.add(val)
+                else:
+                    selected.discard(val)
+            return _on
+
+        def _rebuild(query: str = ""):
+            list_column.controls.clear()
+            q = (query or "").strip()
+            for opt in options:
+                label = str(opt.get("text", ""))
+                if q and q not in label:
+                    continue
+                val = str(opt.get("value", ""))
+                list_column.controls.append(
+                    ft.Checkbox(
+                        label=label,
+                        value=val in selected,
+                        data=val,
+                        on_change=_make_on_cb(val),
+                    )
+                )
+            if not list_column.controls:
+                list_column.controls.append(
+                    ft.Container(
+                        content=ft.Text("无匹配项", color=ft.colors.GREY_500, size=13),
+                        padding=10,
+                        alignment=ft.alignment.center,
+                    )
+                )
+
+        async def _on_search(e):
+            _rebuild(search_tf.value or "")
+            await page.update_async()
+
+        search_tf = ft.TextField(
+            hint_text="搜索",
+            prefix_icon=ft.icons.SEARCH,
+            on_change=_on_search,
+            dense=True,
+            height=40,
+            text_size=13,
+            content_padding=ft.padding.symmetric(horizontal=8, vertical=4),
+        )
+        _rebuild()
 
         async def _confirm(e):
-            vals = [cb.data for cb in checkboxes if cb.value]
-            form_data[field_key] = ",".join(vals)
+            form_data[field_key] = ",".join(sorted(selected))
             dlg.open = False
             await page.update_async()
             _refresh_field_display(field_key)
+            await _on_field_change(field_key)
             await page.update_async()
 
         async def _cancel(e):
-            await _close_dlg(dlg)
+            dlg.open = False
+            await page.update_async()
+
+        async def _clear(e):
+            selected.clear()
+            _rebuild(search_tf.value or "")
+            await page.update_async()
 
         dlg = ft.AlertDialog(
+            modal=True,
             title=ft.Text(title, size=16),
             content=ft.Container(
-                content=ft.Column(checkboxes, scroll=ft.ScrollMode.AUTO, tight=True),
-                height=400,
-                width=300,
+                content=ft.Column(
+                    controls=[
+                        search_tf,
+                        ft.Container(
+                            content=list_column,
+                            height=360,
+                            border=ft.border.all(1, ft.colors.GREY_200),
+                            border_radius=4,
+                        ),
+                    ],
+                    tight=True,
+                    spacing=8,
+                ),
+                width=320,
+            ),
+            actions=[
+                ft.TextButton("清空", on_click=_clear),
+                ft.TextButton("取消", on_click=_cancel),
+                ft.ElevatedButton("确定", on_click=_confirm),
+            ],
+        )
+        page.dialog = dlg
+        dlg.open = True
+        await page.update_async()
+
+    # --- 单选弹窗（带搜索） ---
+    async def _show_single_select(field_key: str, source_key: str, title: str):
+        options = sources.get(source_key, [])
+        current = str(form_data.get(field_key, ""))
+        state: dict[str, str] = {"val": current}
+
+        list_column = ft.Column(scroll=ft.ScrollMode.AUTO, tight=True, spacing=0)
+
+        def _make_on_click(val: str):
+            async def _on(e):
+                state["val"] = val
+                _rebuild(search_tf.value or "")
+                await page.update_async()
+            return _on
+
+        def _rebuild(query: str = ""):
+            list_column.controls.clear()
+            q = (query or "").strip()
+            for opt in options:
+                label = str(opt.get("text", ""))
+                if q and q not in label:
+                    continue
+                val = str(opt.get("value", ""))
+                is_sel = val == state["val"]
+                list_column.controls.append(
+                    ft.Container(
+                        content=ft.Row([
+                            ft.Icon(
+                                ft.icons.RADIO_BUTTON_CHECKED if is_sel else ft.icons.RADIO_BUTTON_UNCHECKED,
+                                size=18,
+                                color=ft.colors.BLUE if is_sel else ft.colors.GREY_400,
+                            ),
+                            ft.Text(label, size=14),
+                        ]),
+                        on_click=_make_on_click(val),
+                        padding=ft.padding.symmetric(horizontal=10, vertical=8),
+                        ink=True,
+                    )
+                )
+            if not list_column.controls:
+                list_column.controls.append(
+                    ft.Container(
+                        content=ft.Text("无匹配项", color=ft.colors.GREY_500, size=13),
+                        padding=10,
+                        alignment=ft.alignment.center,
+                    )
+                )
+
+        async def _on_search(e):
+            _rebuild(search_tf.value or "")
+            await page.update_async()
+
+        search_tf = ft.TextField(
+            hint_text="搜索",
+            prefix_icon=ft.icons.SEARCH,
+            on_change=_on_search,
+            dense=True,
+            height=40,
+            text_size=13,
+            content_padding=ft.padding.symmetric(horizontal=8, vertical=4),
+        )
+        _rebuild()
+
+        async def _confirm(e):
+            form_data[field_key] = state["val"]
+            dlg.open = False
+            await page.update_async()
+            _refresh_field_display(field_key)
+            await _on_field_change(field_key)
+            await page.update_async()
+
+        async def _cancel(e):
+            dlg.open = False
+            await page.update_async()
+
+        dlg = ft.AlertDialog(
+            modal=True,
+            title=ft.Text(title, size=16),
+            content=ft.Container(
+                content=ft.Column(
+                    controls=[
+                        search_tf,
+                        ft.Container(
+                            content=list_column,
+                            height=360,
+                            border=ft.border.all(1, ft.colors.GREY_200),
+                            border_radius=4,
+                        ),
+                    ],
+                    tight=True,
+                    spacing=8,
+                ),
+                width=320,
             ),
             actions=[
                 ft.TextButton("取消", on_click=_cancel),
@@ -179,97 +406,126 @@ async def build_ticket_add_page(
         dlg.open = True
         await page.update_async()
 
-    async def _close_dlg(dlg):
-        dlg.open = False
-        await page.update_async()
+    # --- 中文日期时间选择（年/月/日/时/分/秒） ---
+    async def _show_datetime_picker(field_key: str):
+        now = datetime.datetime.now()
+        cur = str(form_data.get(field_key, ""))
+        dt = now
+        if cur:
+            for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"):
+                try:
+                    dt = datetime.datetime.strptime(cur, fmt)
+                    break
+                except ValueError:
+                    continue
 
-    # --- 单选弹窗 ---
-    async def _show_single_select(field_key: str, source_key: str, title: str):
-        options = sources.get(source_key, [])
+        def _dd(vals: list[str], value: str, width: int) -> ft.Dropdown:
+            return ft.Dropdown(
+                value=value,
+                options=[ft.dropdown.Option(v) for v in vals],
+                width=width,
+                dense=True,
+                text_size=13,
+                content_padding=ft.padding.symmetric(horizontal=6, vertical=4),
+            )
 
-        async def _select(val, e):
+        years = [str(y) for y in range(now.year - 5, now.year + 10)]
+        months = [f"{m:02d}" for m in range(1, 13)]
+        days = [f"{d:02d}" for d in range(1, 32)]
+        hours = [f"{h:02d}" for h in range(0, 24)]
+        mins = [f"{m:02d}" for m in range(0, 60)]
+        secs = [f"{s:02d}" for s in range(0, 60)]
+
+        year_dd = _dd(years, str(dt.year), 90)
+        month_dd = _dd(months, f"{dt.month:02d}", 70)
+        day_dd = _dd(days, f"{dt.day:02d}", 70)
+        hour_dd = _dd(hours, f"{dt.hour:02d}", 70)
+        min_dd = _dd(mins, f"{dt.minute:02d}", 70)
+        sec_dd = _dd(secs, f"{dt.second:02d}", 70)
+
+        def _label(txt: str):
+            return ft.Text(txt, size=13, color=ft.colors.GREY_700)
+
+        async def _confirm(e):
+            val = (
+                f"{year_dd.value}-{month_dd.value}-{day_dd.value} "
+                f"{hour_dd.value}:{min_dd.value}:{sec_dd.value}"
+            )
             form_data[field_key] = val
             dlg.open = False
             await page.update_async()
             _refresh_field_display(field_key)
             await page.update_async()
 
-        def _make_select(v):
-            async def _on_click(e):
-                await _select(v, e)
-            return _on_click
-
-        tiles = []
-        for opt in options:
-            val = str(opt["value"])
-            tiles.append(ft.ListTile(
-                title=ft.Text(opt["text"]),
-                on_click=_make_select(val),
-            ))
+        async def _cancel(e):
+            dlg.open = False
+            await page.update_async()
 
         dlg = ft.AlertDialog(
-            title=ft.Text(title, size=16),
+            modal=True,
+            title=ft.Text("选择时间", size=16),
             content=ft.Container(
-                content=ft.Column(tiles, scroll=ft.ScrollMode.AUTO, tight=True),
-                height=400,
-                width=300,
+                content=ft.Column([
+                    ft.Row([year_dd, _label("年"), month_dd, _label("月"), day_dd, _label("日")],
+                           alignment=ft.MainAxisAlignment.START, spacing=4),
+                    ft.Row([hour_dd, _label("时"), min_dd, _label("分"), sec_dd, _label("秒")],
+                           alignment=ft.MainAxisAlignment.START, spacing=4),
+                ], tight=True, spacing=12),
+                width=360,
             ),
+            actions=[
+                ft.TextButton("取消", on_click=_cancel),
+                ft.ElevatedButton("确定", on_click=_confirm),
+            ],
         )
         page.dialog = dlg
         dlg.open = True
         await page.update_async()
 
-    # --- 日期选择 ---
-    async def _show_date_picker(field_key: str):
-        async def _on_date(e):
-            if e.control.value:
-                import datetime
-                dt = e.control.value
-                form_data[field_key] = dt.strftime("%Y-%m-%d %H:%M:%S")
-                _refresh_field_display(field_key)
-                await page.update_async()
-
-        dp = ft.DatePicker(on_change=_on_date)
-        page.overlay.append(dp)
-        await page.update_async()
-        dp.pick_date()
-
     # --- 刷新字段显示值 ---
     def _refresh_field_display(field_key: str):
-        """更新字段显示文本"""
-        # 查找对应字段定义
         for f in all_fields:
-            if f.key == field_key:
-                ctrl_container = field_controls.get(field_key)
-                if ctrl_container and hasattr(ctrl_container, '_display_text'):
-                    val = form_data.get(field_key, "")
-                    if f.widget in ("select_single", "select_multi"):
-                        opts = sources.get(f.source, [])
-                        vals = str(val).split(",") if val else []
-                        names = [o["text"] for o in opts if str(o["value"]) in vals]
-                        ctrl_container._display_text.value = ", ".join(names) or "请选择"
-                    else:
-                        ctrl_container._display_text.value = str(val) or "请选择"
-                break
+            if f.key != field_key:
+                continue
+            ctrl_container = field_controls.get(field_key)
+            if not ctrl_container:
+                return
+            display = getattr(ctrl_container, "_display_text", None)
+            if display is None:
+                return
+            val = form_data.get(field_key, "")
+            if f.widget in ("select_single", "select_multi"):
+                opts = sources.get(f.source, [])
+                vals = [v for v in str(val).split(",") if v]
+                names = [o["text"] for o in opts if str(o["value"]) in vals]
+                display.value = ", ".join(names) if names else "请选择"
+                display.color = ft.colors.BLACK87 if names else ft.colors.GREY_600
+            else:
+                display.value = str(val) if val else "请选择时间"
+                display.color = ft.colors.BLACK87 if val else ft.colors.GREY_600
+            return
 
     # --- 条件字段可见性 ---
     def _update_condition_visibility():
         for f in all_fields:
-            if f.condition:
-                dep_key, dep_val = f.condition
-                visible = str(form_data.get(dep_key, "")) == dep_val
-                if f.key in field_controls:
-                    field_controls[f.key].visible = visible
+            if not f.condition:
+                continue
+            dep_key, dep_val = f.condition
+            visible = str(form_data.get(dep_key, "")) == dep_val
+            if f.key in field_controls:
+                field_controls[f.key].visible = visible
 
     # --- 构建单个字段控件 ---
     def _build_field(f: FieldDef) -> ft.Container:
         label_parts: list[ft.Control] = []
         if f.required:
             label_parts.append(ft.Text("*", color=ft.colors.RED, size=14))
-        label_parts.append(ft.Text(f.label, size=14, color=ft.colors.GREY_700, width=120))
+        label_parts.append(ft.Text(f.label, size=14, color=ft.colors.GREY_700, width=140))
+
+        display_ref: ft.Text | None = None
 
         if f.widget == "input":
-            tf = ft.TextField(
+            control = ft.TextField(
                 value=str(form_data.get(f.key, "")),
                 hint_text="请填写",
                 on_change=lambda e, k=f.key: form_data.__setitem__(k, e.control.value),
@@ -279,9 +535,8 @@ async def build_ticket_add_page(
                 text_size=14,
                 expand=True,
             )
-            control = tf
         elif f.widget == "number":
-            tf = ft.TextField(
+            control = ft.TextField(
                 value=str(form_data.get(f.key, "")),
                 hint_text="请填写",
                 keyboard_type=ft.KeyboardType.NUMBER,
@@ -292,10 +547,9 @@ async def build_ticket_add_page(
                 text_size=14,
                 expand=True,
             )
-            control = tf
         elif f.widget == "radio":
             opts = f.radio_options or []
-            rg = ft.RadioGroup(
+            control = ft.RadioGroup(
                 value=str(form_data.get(f.key, "")),
                 on_change=lambda e, k=f.key: _on_radio_change(k, e),
                 content=ft.Row(
@@ -303,15 +557,13 @@ async def build_ticket_add_page(
                     wrap=True,
                 ),
             )
-            control = rg
         elif f.widget in ("select_single", "select_multi"):
-            # 显示已选内容
             val = form_data.get(f.key, "")
             opts = sources.get(f.source, [])
-            vals = str(val).split(",") if val else []
+            vals = [v for v in str(val).split(",") if v]
             names = [o["text"] for o in opts if str(o["value"]) in vals]
-            display = ft.Text(
-                ", ".join(names) or "请选择",
+            display_ref = ft.Text(
+                ", ".join(names) if names else "请选择",
                 size=14,
                 color=ft.colors.GREY_600 if not names else ft.colors.BLACK87,
                 expand=True,
@@ -331,7 +583,7 @@ async def build_ticket_add_page(
 
             control = ft.Container(
                 content=ft.Row(
-                    controls=[display, ft.Icon(ft.icons.ARROW_DROP_DOWN, size=20, color=ft.colors.GREY_400)],
+                    controls=[display_ref, ft.Icon(ft.icons.ARROW_DROP_DOWN, size=20, color=ft.colors.GREY_400)],
                 ),
                 on_click=handler,
                 padding=ft.padding.symmetric(horizontal=10, vertical=10),
@@ -340,24 +592,23 @@ async def build_ticket_add_page(
                 expand=True,
                 ink=True,
             )
-            # 保存引用用于刷新
-            control._display_text = display
         elif f.widget == "datetime":
             val = form_data.get(f.key, "")
-            display = ft.Text(
-                str(val) or "请选择时间",
+            display_ref = ft.Text(
+                str(val) if val else "请选择时间",
                 size=14,
                 color=ft.colors.GREY_600 if not val else ft.colors.BLACK87,
                 expand=True,
             )
+
             def _make_date_handler(k):
                 async def _on_click(e):
-                    await _show_date_picker(k)
+                    await _show_datetime_picker(k)
                 return _on_click
 
             control = ft.Container(
                 content=ft.Row(
-                    controls=[display, ft.Icon(ft.icons.CALENDAR_TODAY, size=20, color=ft.colors.GREY_400)],
+                    controls=[display_ref, ft.Icon(ft.icons.CALENDAR_TODAY, size=20, color=ft.colors.GREY_400)],
                 ),
                 on_click=_make_date_handler(f.key),
                 padding=ft.padding.symmetric(horizontal=10, vertical=10),
@@ -366,7 +617,6 @@ async def build_ticket_add_page(
                 expand=True,
                 ink=True,
             )
-            control._display_text = display
         else:
             control = ft.Text("未知控件类型")
 
@@ -382,7 +632,10 @@ async def build_ticket_add_page(
             bgcolor=ft.colors.WHITE,
         )
 
-        # 条件字段初始可见性
+        # 将 display Text 引用挂到 container，供 _refresh_field_display 使用
+        if display_ref is not None:
+            container._display_text = display_ref
+
         if f.condition:
             dep_key, dep_val = f.condition
             container.visible = str(form_data.get(dep_key, "")) == dep_val
@@ -397,7 +650,6 @@ async def build_ticket_add_page(
 
     # --- 提交 ---
     async def _submit(save_only: bool = False):
-        # 简单必填校验
         missing = []
         for f in all_fields:
             if not f.required:
@@ -439,22 +691,20 @@ async def build_ticket_add_page(
             await page.update_async()
 
     # --- 组装页面 ---
-    # 先加载数据源
     await _load_sources()
     if sq_id:
         await _load_existing()
 
-    # 构建表单字段
     for f in all_fields:
         form_column.controls.append(_build_field(f))
 
-    # 坐标提示
+    # 坐标提示（固定插到第 4 行）
     form_column.controls.insert(
-        len(TICKET_TYPES) and 3,  # 在摄像头后面
+        3,
         ft.Container(
             content=ft.Row([
                 ft.Text("*", color=ft.colors.RED, size=14),
-                ft.Text("坐标选择", size=14, color=ft.colors.GREY_700, width=120),
+                ft.Text("坐标选择", size=14, color=ft.colors.GREY_700, width=140),
                 ft.Text("坐标默认为厂区中心，后续需去网页完善！", size=12, color=ft.colors.ORANGE, expand=True),
             ], spacing=2),
             padding=ft.padding.symmetric(horizontal=16, vertical=8),
@@ -468,7 +718,6 @@ async def build_ticket_add_page(
     async def _on_submit(e):
         await _submit(save_only=False)
 
-    # 底部按钮
     buttons = ft.Container(
         content=ft.Row(
             controls=[

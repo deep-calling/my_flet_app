@@ -58,6 +58,14 @@ async def get_qttszyzbh_list(ticket_type: str) -> Any:
     )
 
 
+async def get_user_zs(ticket_type: str, ids: str) -> Any:
+    """按作业类别和人员 ID 批量查询证书编号"""
+    return await api_client.get(
+        "/jeecg-boot/ticketprocess/utils/getZyzs",
+        params={"zylb": ticket_type, "ids": ids},
+    )
+
+
 async def get_table_data(params: dict) -> Any:
     """通用表数据查询（坐标等）"""
     return await api_client.get(

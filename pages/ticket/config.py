@@ -47,6 +47,15 @@ COMMON_TAIL_FIELDS: list[FieldDef] = [
     FieldDef("jsjdr", "接受交底人", "select_multi", source="peoples"),
 ]
 
+# 动火作业尾部字段：证编号字段名为 qttsywbh（与其他类型不同）
+DH_TAIL_FIELDS: list[FieldDef] = [
+    FieldDef("sjdqttszy", "涉及的其他特殊作业", "select_multi", required=False, source="typeList"),
+    FieldDef("qttsywbh", "涉及的其他特殊作业证编号", "select_multi", required=False, source="qttsywbhs"),
+    FieldDef("qtaqcsbzr", "其他安全措施编制人", "select_multi", source="peoples"),
+    FieldDef("aqjdr", "安全交底人", "select_multi", source="peoples"),
+    FieldDef("jsjdr", "接受交底人", "select_multi", source="peoples"),
+]
+
 COMMON_END_FIELDS: list[FieldDef] = [
     FieldDef("szdw", "所在单位负责人", "select_multi", source="peoples"),
     FieldDef("ysr", "验收人", "select_multi", source="peoples"),
@@ -65,9 +74,10 @@ DH_FIELDS: list[FieldDef] = [
     FieldDef("zyjb", "动火作业级别", "select_single", source="zyjbs"),
     FieldDef("zyfs", "动火方式", "input"),
     FieldDef("sgdw", "作业单位", "input"),
-    FieldDef("zyr", "作业人", "select_multi", source="peoples"),
+    FieldDef("zyr", "作业人", "select_multi", source="peoplesZS"),
     FieldDef("dhzsbh", "动火人证书编号", "select_multi", source="peoplesZSs"),
     FieldDef("jhr", "监护人", "select_multi", source="peoples"),
+    FieldDef("jhrzsbh", "监护人证书编号", "input", required=False),
     FieldDef("sfxyaqjc", "是否需要动火分析", "radio", radio_options=YES_NO),
     FieldDef("aqjcr", "动火分析人", "select_multi", source="peoples", condition=("sfxyaqjc", "1")),
     # 审批链
@@ -238,6 +248,10 @@ class TicketTypeConfig:
     analysis_default: str = "0"
     # 详情页第二项（分析）的标题
     analysis_title: str = ""
+    # zyjb（作业级别）字典 code，不同类型不同
+    zyjb_dict: str = ""
+    # 尾部字段（兼容 DH 的 qttsywbh 命名）
+    tail_fields: list[FieldDef] = field(default_factory=list)
 
 
 TICKET_TYPES: dict[str, TicketTypeConfig] = {
@@ -251,6 +265,8 @@ TICKET_TYPES: dict[str, TicketTypeConfig] = {
         coord_field="dhzb",
         analysis_default="1",
         analysis_title="动火分析",
+        zyjb_dict="tb_zyp_dh_type",
+        tail_fields=DH_TAIL_FIELDS,
     ),
     "SXKJ": TicketTypeConfig(
         code="SXKJ", name="受限空间作业", type_value="4",
@@ -272,6 +288,7 @@ TICKET_TYPES: dict[str, TicketTypeConfig] = {
         query_path="/jeecg-boot/app/ticketprocess/gc/queryPageById",
         coord_field="zyzb",
         analysis_title="高处分析",
+        zyjb_dict="tb_zyp_gc_type",
     ),
     "DZ": TicketTypeConfig(
         code="DZ", name="吊装作业", type_value="7",
@@ -282,6 +299,7 @@ TICKET_TYPES: dict[str, TicketTypeConfig] = {
         query_path="/jeecg-boot/app/ticketprocess/dz/queryPageById",
         coord_field="dzzb",
         analysis_title="吊装分析",
+        zyjb_dict="tb_zyp_dz_type",
     ),
     "LSYD": TicketTypeConfig(
         code="LSYD", name="临时用电作业", type_value="8",
@@ -337,7 +355,8 @@ def get_config_by_type_value(type_value: str) -> TicketTypeConfig | None:
 
 def get_all_fields(config: TicketTypeConfig) -> list[FieldDef]:
     """获取某类型的全部字段列表（公共 + 特有 + 公共尾部）"""
-    return COMMON_FIELDS + config.extra_fields + COMMON_TAIL_FIELDS + COMMON_END_FIELDS
+    tail = config.tail_fields or COMMON_TAIL_FIELDS
+    return COMMON_FIELDS + config.extra_fields + tail + COMMON_END_FIELDS
 
 
 def get_detail_display_fields(config: TicketTypeConfig) -> list[FieldDef]:
@@ -388,7 +407,7 @@ def get_detail_display_fields(config: TicketTypeConfig) -> list[FieldDef]:
         _pop("ysr", "验收人"),
     ]
     # 不显示的字段：摄像头、表单里的起止时间、涉及的其他特殊作业证编号
-    _EXCLUDE = {"cameraId", "beginTime", "endTime", "sjdqttszyaqzyzbh"}
+    _EXCLUDE = {"cameraId", "beginTime", "endTime", "sjdqttszyaqzyzbh", "qttsywbh"}
     ordered.extend(v for k, v in pool.items() if k not in _EXCLUDE)
     return ordered
 
