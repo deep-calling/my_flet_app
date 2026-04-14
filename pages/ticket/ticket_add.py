@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 import flet as ft
@@ -69,63 +70,57 @@ async def build_ticket_add_page(
             else:
                 result.append({"id": tree["id"], "text": tree.get("departName", ""), "value": tree["id"]})
 
-    # --- 加载数据源 ---
+    # --- 加载数据源（并行） ---
     async def _load_sources():
-        try:
-            # 部门
-            depart_result = await svc.get_depart_list()
-            flat = []
-            if isinstance(depart_result, list) and depart_result:
-                _flatten_departs(depart_result[0], flat)
+        results = await asyncio.gather(
+            svc.get_depart_list(),
+            svc.get_people_list(),
+            svc.get_camera_list(),
+            svc.get_dict_work_type(),
+            svc.get_qttszyzbh_list(type_value),
+            svc.get_dict_items("ticket_zyjb"),
+            svc.get_dict_items("mbcd_zylx"),
+            svc.get_people_zs_list(type_value),
+            return_exceptions=True,
+        )
+        (depart_result, people_result, camera_result, type_result,
+         zbh_result, zyjb_result, zylx_result, zs_result) = results
+
+        # 部门
+        if isinstance(depart_result, list) and depart_result:
+            flat: list[dict] = []
+            _flatten_departs(depart_result[0], flat)
             sources["departs"] = flat
 
-            # 人员
-            people_result = await svc.get_people_list()
-            records = people_result.get("records", []) if isinstance(people_result, dict) else []
+        # 人员
+        if isinstance(people_result, dict):
+            records = people_result.get("records", [])
             sources["peoples"] = [{"id": r["id"], "text": r.get("xm", ""), "value": r["id"]} for r in records]
 
-            # 摄像头
-            camera_result = await svc.get_camera_list()
-            if isinstance(camera_result, list):
-                sources["cameras"] = [{"id": r["id"], "text": r.get("cameraCode", ""), "value": r["id"]} for r in camera_result]
+        # 摄像头
+        if isinstance(camera_result, list):
+            sources["cameras"] = [{"id": r["id"], "text": r.get("cameraCode", ""), "value": r["id"]} for r in camera_result]
 
-            # 作业类型列表
-            type_result = await svc.get_dict_work_type()
-            if isinstance(type_result, list):
-                sources["typeList"] = [{"text": r.get("text", ""), "value": r.get("value", "")} for r in type_result]
+        # 作业类型列表
+        if isinstance(type_result, list):
+            sources["typeList"] = [{"text": r.get("text", ""), "value": r.get("value", "")} for r in type_result]
 
-            # 其他特殊作业证编号
-            zbh_result = await svc.get_qttszyzbh_list(type_value)
-            if isinstance(zbh_result, list):
-                sources["qttsywbhs"] = [{"text": r.get("text", r.get("zyzbh", "")), "value": r.get("value", r.get("id", ""))} for r in zbh_result]
+        # 其他特殊作业证编号
+        if isinstance(zbh_result, list):
+            sources["qttsywbhs"] = [{"text": r.get("text", r.get("zyzbh", "")), "value": r.get("value", r.get("id", ""))} for r in zbh_result]
 
-            # 作业级别字典
-            try:
-                zyjb_result = await svc.get_dict_items("ticket_zyjb")
-                if isinstance(zyjb_result, list):
-                    sources["zyjbs"] = [{"text": r.get("text", ""), "value": r.get("value", "")} for r in zyjb_result]
-            except Exception:
-                pass
+        # 作业级别字典
+        if isinstance(zyjb_result, list):
+            sources["zyjbs"] = [{"text": r.get("text", ""), "value": r.get("value", "")} for r in zyjb_result]
 
-            # 盲板作业类别
-            try:
-                zylx_result = await svc.get_dict_items("mbcd_zylx")
-                if isinstance(zylx_result, list):
-                    sources["zylxs"] = [{"text": r.get("text", ""), "value": r.get("value", "")} for r in zylx_result]
-            except Exception:
-                pass
+        # 盲板作业类别
+        if isinstance(zylx_result, list):
+            sources["zylxs"] = [{"text": r.get("text", ""), "value": r.get("value", "")} for r in zylx_result]
 
-            # 证书列表
-            try:
-                zs_result = await svc.get_people_zs_list(type_value)
-                records_zs = zs_result.get("records", []) if isinstance(zs_result, dict) else []
-                sources["peoplesZSs"] = [{"id": r["id"], "text": r.get("xm", ""), "value": r["id"]} for r in records_zs]
-            except Exception:
-                pass
-
-        except Exception as ex:
-            page.snack_bar = ft.SnackBar(ft.Text(f"加载基础数据失败：{ex}"), open=True)
-            await page.update_async()
+        # 证书列表
+        if isinstance(zs_result, dict):
+            records_zs = zs_result.get("records", [])
+            sources["peoplesZSs"] = [{"id": r["id"], "text": r.get("xm", ""), "value": r["id"]} for r in records_zs]
 
     # --- 加载已有数据（编辑模式）---
     async def _load_existing():
@@ -165,6 +160,9 @@ async def build_ticket_add_page(
             _refresh_field_display(field_key)
             await page.update_async()
 
+        async def _cancel(e):
+            await _close_dlg(dlg)
+
         dlg = ft.AlertDialog(
             title=ft.Text(title, size=16),
             content=ft.Container(
@@ -173,7 +171,7 @@ async def build_ticket_add_page(
                 width=300,
             ),
             actions=[
-                ft.TextButton("取消", on_click=lambda e: _close_dlg(dlg)),
+                ft.TextButton("取消", on_click=_cancel),
                 ft.ElevatedButton("确定", on_click=_confirm),
             ],
         )
@@ -196,12 +194,17 @@ async def build_ticket_add_page(
             _refresh_field_display(field_key)
             await page.update_async()
 
+        def _make_select(v):
+            async def _on_click(e):
+                await _select(v, e)
+            return _on_click
+
         tiles = []
         for opt in options:
             val = str(opt["value"])
             tiles.append(ft.ListTile(
                 title=ft.Text(opt["text"]),
-                on_click=lambda e, v=val: _select(v, e),
+                on_click=_make_select(val),
             ))
 
         dlg = ft.AlertDialog(
@@ -314,10 +317,17 @@ async def build_ticket_add_page(
                 expand=True,
             )
 
-            if f.widget == "select_single":
-                handler = lambda e, k=f.key, s=f.source, l=f.label: _show_single_select(k, s, l)
-            else:
-                handler = lambda e, k=f.key, s=f.source, l=f.label: _show_multi_select(k, s, l)
+            def _make_select_handler(k, s, l, multi):
+                async def _on_click(e):
+                    if multi:
+                        await _show_multi_select(k, s, l)
+                    else:
+                        await _show_single_select(k, s, l)
+                return _on_click
+
+            handler = _make_select_handler(
+                f.key, f.source, f.label, f.widget == "select_multi",
+            )
 
             control = ft.Container(
                 content=ft.Row(
@@ -340,11 +350,16 @@ async def build_ticket_add_page(
                 color=ft.colors.GREY_600 if not val else ft.colors.BLACK87,
                 expand=True,
             )
+            def _make_date_handler(k):
+                async def _on_click(e):
+                    await _show_date_picker(k)
+                return _on_click
+
             control = ft.Container(
                 content=ft.Row(
                     controls=[display, ft.Icon(ft.icons.CALENDAR_TODAY, size=20, color=ft.colors.GREY_400)],
                 ),
-                on_click=lambda e, k=f.key: _show_date_picker(k),
+                on_click=_make_date_handler(f.key),
                 padding=ft.padding.symmetric(horizontal=10, vertical=10),
                 border=ft.border.all(1, ft.colors.GREY_300),
                 border_radius=4,
@@ -447,18 +462,24 @@ async def build_ticket_add_page(
         ),
     )
 
+    async def _on_save(e):
+        await _submit(save_only=True)
+
+    async def _on_submit(e):
+        await _submit(save_only=False)
+
     # 底部按钮
     buttons = ft.Container(
         content=ft.Row(
             controls=[
                 ft.ElevatedButton(
                     "保存",
-                    on_click=lambda e: _submit(save_only=True),
+                    on_click=_on_save,
                     expand=True,
                 ) if sq_id else ft.Container(),
                 ft.ElevatedButton(
                     "提交",
-                    on_click=lambda e: _submit(save_only=False),
+                    on_click=_on_submit,
                     bgcolor=ft.colors.BLUE,
                     color=ft.colors.WHITE,
                     expand=True,
