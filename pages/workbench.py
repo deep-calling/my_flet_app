@@ -79,7 +79,7 @@ async def build_workbench_content(page: ft.Page) -> ft.Control:
 
     # 构建作业票图表
     ticket_chart = ft.Container(
-        height=200,
+        height=240,
         bgcolor=ft.colors.GREY_50,
         border_radius=8,
         alignment=ft.alignment.center,
@@ -113,16 +113,34 @@ async def build_workbench_content(page: ft.Page) -> ft.Control:
                     ft.BarChartGroup(x=i, bar_rods=rods)
                 )
 
+            import math
+
             bottom_labels = []
             for i, field in enumerate(fields):
                 short_name = field[:-2] if field.endswith("作业票") else field
                 bottom_labels.append(
-                    ft.ChartAxisLabel(value=i, label=ft.Text(short_name, size=10))
+                    ft.ChartAxisLabel(
+                        value=i,
+                        label=ft.Container(
+                            content=ft.Text(
+                                short_name,
+                                size=10,
+                                no_wrap=True,
+                                text_align=ft.TextAlign.CENTER,
+                            ),
+                            rotate=ft.Rotate(
+                                angle=-math.pi / 6,  # -30°
+                                alignment=ft.alignment.center,
+                            ),
+                            padding=ft.padding.only(top=18),
+                            alignment=ft.alignment.center,
+                        ),
+                    )
                 )
 
             ticket_chart = ft.BarChart(
                 bar_groups=bar_groups,
-                bottom_axis=ft.ChartAxis(labels=bottom_labels, labels_size=30),
+                bottom_axis=ft.ChartAxis(labels=bottom_labels, labels_size=60),
                 left_axis=ft.ChartAxis(labels_size=40),
                 border=ft.border.all(0, ft.colors.TRANSPARENT),
                 horizontal_grid_lines=ft.ChartGridLines(
@@ -134,7 +152,7 @@ async def build_workbench_content(page: ft.Page) -> ft.Control:
                 ) * 1.2 or 10,
                 interactive=True,
                 expand=True,
-                height=200,
+                height=240,
             )
     except Exception:
         pass

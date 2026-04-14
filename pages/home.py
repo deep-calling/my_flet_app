@@ -178,7 +178,7 @@ async def build_home_content(page: ft.Page) -> ft.Control:
 
     top_bar = ft.Container(
         bgcolor=ft.colors.WHITE,
-        padding=ft.padding.symmetric(horizontal=16, vertical=12),
+        padding=ft.padding.only(left=16, right=16, top=44, bottom=12),
         content=ft.Row(
             controls=[
                 msg_icon_container,

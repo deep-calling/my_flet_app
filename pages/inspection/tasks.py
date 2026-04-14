@@ -884,6 +884,114 @@ async def build_content_view(page: ft.Page, item_data: dict) -> ft.View:
         """手动签到（替代 NFC/扫码）"""
         await _do_sign_in()
 
+    async def _verify_and_sign(qr_text: str):
+        """校验二维码并签到"""
+        qr_text = (qr_text or "").strip()
+        if not qr_text:
+            page.snack_bar = ft.SnackBar(ft.Text("二维码内容为空"), open=True)
+            await page.update_async()
+            return False
+        # 与 UniApp 一致：'scy' 前缀去掉（如有）
+        msg = qr_text[3:] if qr_text.startswith("scy") else qr_text
+        try:
+            result = await ins.check_qr_code({
+                "recordItemId": record_item_id,
+                "QRMessage": msg,
+            })
+            # 后端 check_qr_code 成功时返回 success；api_client 已剥壳，
+            # 失败时通常抛异常或返回错误信息字符串
+            if isinstance(result, str) and result:
+                page.snack_bar = ft.SnackBar(ft.Text(f"扫码失败：{result}"), open=True)
+                await page.update_async()
+                return False
+        except Exception as ex:
+            page.snack_bar = ft.SnackBar(ft.Text(f"二维码校验失败：{ex}"), open=True)
+            await page.update_async()
+            return False
+        await _do_sign_in()
+        return True
+
+    async def _on_scan_qr(e):
+        """扫码签到 — 弹窗：选择二维码图片或手动输入"""
+        from utils.qr_decoder import decode_qr_image
+
+        qr_input = ft.TextField(
+            hint_text="或粘贴二维码内容",
+            border_color=ft.colors.GREY_300,
+            text_size=14,
+        )
+        picked_file_text = ft.Text("", size=12, color=ft.colors.GREY_700)
+
+        async def _on_files_picked(ev: ft.FilePickerResultEvent):
+            if not ev.files:
+                return
+            f = ev.files[0]
+            picked_file_text.value = f"已选择：{f.name}"
+            await page.update_async()
+            decoded = decode_qr_image(f.path)
+            if decoded:
+                qr_input.value = decoded
+                picked_file_text.value = f"已识别：{f.name}"
+            else:
+                picked_file_text.value = f"未识别到二维码：{f.name}"
+            await page.update_async()
+
+        file_picker = ft.FilePicker(on_result=_on_files_picked)
+        page.overlay.append(file_picker)
+        await page.update_async()
+
+        async def _pick(ev):
+            file_picker.pick_files(
+                allow_multiple=False,
+                allowed_extensions=["jpg", "jpeg", "png", "bmp", "webp"],
+                dialog_title="选择二维码图片",
+            )
+
+        async def _confirm(ev):
+            ok = await _verify_and_sign(qr_input.value or "")
+            if ok:
+                dlg.open = False
+                try:
+                    page.overlay.remove(file_picker)
+                except ValueError:
+                    pass
+                await page.update_async()
+
+        async def _cancel(ev):
+            dlg.open = False
+            try:
+                page.overlay.remove(file_picker)
+            except ValueError:
+                pass
+            await page.update_async()
+
+        dlg = ft.AlertDialog(
+            title=ft.Text("扫码签到"),
+            content=ft.Column(
+                controls=[
+                    ft.Text("选择二维码图片自动识别，或手动粘贴二维码内容",
+                            size=13, color=ft.colors.GREY_700),
+                    ft.ElevatedButton(
+                        "选择二维码图片",
+                        icon=ft.icons.IMAGE,
+                        on_click=_pick,
+                    ),
+                    picked_file_text,
+                    qr_input,
+                ],
+                spacing=10,
+                tight=True,
+                width=360,
+            ),
+            actions=[
+                ft.TextButton("取消", on_click=_cancel),
+                ft.TextButton("确认签到", on_click=_confirm),
+            ],
+        )
+        page.dialog = dlg
+        dlg.open = True
+        await page.update_async()
+
     async def _submit_point(e):
         """提交点位检查结果"""
         # 检查是否所有内容都已检查
@@ -938,29 +1046,29 @@ async def build_content_view(page: ft.Page, item_data: dict) -> ft.View:
                 bgcolor=ft.colors.BLUE, color=ft.colors.WHITE,
             )
         else:
-            # TODO: Flet 不支持 NFC 扫描和二维码扫描，使用手动签到替代
-            # 如需 NFC 或扫码签到，需接入原生插件或外部设备
+            # 扫码签到：选取二维码图片识别，或粘贴二维码内容；
+            # 同时保留手动签到作为兜底。
             sign_status.content = ft.Column(
                 controls=[
                     ft.Container(
-                        content=ft.Icon(ft.icons.QR_CODE_SCANNER, size=60, color=ft.colors.GREY_500),
+                        content=ft.Icon(ft.icons.QR_CODE_SCANNER, size=60, color=ft.colors.BLUE),
                         alignment=ft.alignment.center,
-                        on_click=_on_manual_sign,
+                        on_click=_on_scan_qr,
                         ink=True,
-                        tooltip="TODO: 扫码签到（Flet 暂不支持摄像头扫码，点击此处手动签到）",
+                        tooltip="扫码签到",
                     ),
                     ft.ElevatedButton(
+                        "扫码签到",
+                        icon=ft.icons.QR_CODE_SCANNER,
+                        on_click=_on_scan_qr,
+                        bgcolor=ft.colors.BLUE,
+                        color=ft.colors.WHITE,
+                    ),
+                    ft.TextButton(
                         "手动签到",
                         icon=ft.icons.CHECK_CIRCLE_OUTLINE,
                         on_click=_on_manual_sign,
-                        bgcolor=ft.colors.BLUE,
-                        color=ft.colors.WHITE,
-                        tooltip="替代 NFC/扫码签到",
-                    ),
-                    ft.Text(
-                        "TODO: NFC 签到和二维码扫码签到需接入原生能力",
-                        size=11, color=ft.colors.GREY_500,
-                        text_align=ft.TextAlign.CENTER,
+                        style=ft.ButtonStyle(color=ft.colors.GREY_700),
                     ),
                 ],
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
