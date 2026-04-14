@@ -78,8 +78,10 @@ async def build_workbench_content(page: ft.Page) -> ft.Control:
         process_alarm = alarm_result.get("processAlarm", {})
 
     # 构建作业票图表
-    ticket_chart = ft.Container(
-        height=240,
+    chart_height = 280
+    legend_row: ft.Control | None = None
+    ticket_chart: ft.Control = ft.Container(
+        height=chart_height,
         bgcolor=ft.colors.GREY_50,
         border_radius=8,
         alignment=ft.alignment.center,
@@ -90,9 +92,10 @@ async def build_workbench_content(page: ft.Page) -> ft.Control:
             result = ticket_result
             fields = result["fields"]
             source_data = result.get("sourceData", [])
+            colors = [ft.colors.BLUE, ft.colors.ORANGE, ft.colors.GREEN, ft.colors.RED]
+
             # 构建柱状图
             bar_groups = []
-            colors = [ft.colors.BLUE, ft.colors.ORANGE, ft.colors.GREEN, ft.colors.RED]
             for i, field in enumerate(fields):
                 rods = []
                 for j, sd in enumerate(source_data):
@@ -103,18 +106,13 @@ async def build_workbench_content(page: ft.Page) -> ft.Control:
                             to_y=val,
                             width=12,
                             color=colors[j % len(colors)],
-                            tooltip=f"{sd['name']}: {val}",
+                            tooltip=f"{sd.get('name', '')}: {val}",
                             border_radius=2,
                         )
                     )
-                # 截取票名（去掉"作业票"后缀）
-                short_name = field[:-2] if field.endswith("作业票") else field
-                bar_groups.append(
-                    ft.BarChartGroup(x=i, bar_rods=rods)
-                )
+                bar_groups.append(ft.BarChartGroup(x=i, bar_rods=rods))
 
-            import math
-
+            # X 轴标签：水平短名称，避免与柱体或彼此重叠
             bottom_labels = []
             for i, field in enumerate(fields):
                 short_name = field[:-2] if field.endswith("作业票") else field
@@ -125,23 +123,21 @@ async def build_workbench_content(page: ft.Page) -> ft.Control:
                             content=ft.Text(
                                 short_name,
                                 size=10,
-                                no_wrap=True,
+                                no_wrap=False,
+                                max_lines=2,
                                 text_align=ft.TextAlign.CENTER,
                             ),
-                            rotate=ft.Rotate(
-                                angle=-math.pi / 6,  # -30°
-                                alignment=ft.alignment.center,
-                            ),
-                            padding=ft.padding.only(top=18),
-                            alignment=ft.alignment.center,
+                            width=56,
+                            padding=ft.padding.only(top=6),
+                            alignment=ft.alignment.top_center,
                         ),
                     )
                 )
 
             ticket_chart = ft.BarChart(
                 bar_groups=bar_groups,
-                bottom_axis=ft.ChartAxis(labels=bottom_labels, labels_size=60),
-                left_axis=ft.ChartAxis(labels_size=40),
+                bottom_axis=ft.ChartAxis(labels=bottom_labels, labels_size=44),
+                left_axis=ft.ChartAxis(labels_size=36),
                 border=ft.border.all(0, ft.colors.TRANSPARENT),
                 horizontal_grid_lines=ft.ChartGridLines(
                     color=ft.colors.GREY_200, width=1, dash_pattern=[3, 3]
@@ -151,9 +147,33 @@ async def build_workbench_content(page: ft.Page) -> ft.Control:
                     default=10,
                 ) * 1.2 or 10,
                 interactive=True,
-                expand=True,
-                height=240,
+                height=chart_height,
             )
+
+            # 颜色图例
+            legend_items = []
+            for j, sd in enumerate(source_data):
+                legend_items.append(
+                    ft.Row(
+                        controls=[
+                            ft.Container(
+                                width=10, height=10,
+                                bgcolor=colors[j % len(colors)],
+                                border_radius=2,
+                            ),
+                            ft.Text(str(sd.get("name", "")), size=12, color=ft.colors.GREY_700),
+                        ],
+                        spacing=4,
+                        tight=True,
+                    )
+                )
+            if legend_items:
+                legend_row = ft.Row(
+                    controls=legend_items,
+                    spacing=16,
+                    wrap=True,
+                    alignment=ft.MainAxisAlignment.CENTER,
+                )
     except Exception:
         pass
 
@@ -201,17 +221,22 @@ async def build_workbench_content(page: ft.Page) -> ft.Control:
     ])
 
     # --- 作业清单看板 ---
+    section_children: list[ft.Control] = [
+        ft.Text("作业清单看板", size=15, weight=ft.FontWeight.W_500),
+    ]
+    if legend_row is not None:
+        section_children.append(legend_row)
+    section_children.append(ticket_chart)
+
     ticket_section = ft.Container(
         bgcolor=ft.colors.WHITE,
         margin=ft.margin.only(left=16, right=16, top=12, bottom=12),
         border_radius=8,
         padding=ft.padding.all(12),
         content=ft.Column(
-            controls=[
-                ft.Text("作业清单看板", size=15, weight=ft.FontWeight.W_500),
-                ticket_chart,
-            ],
-            spacing=8,
+            controls=section_children,
+            spacing=10,
+            tight=True,
         ),
     )
 

@@ -912,71 +912,35 @@ async def build_content_view(page: ft.Page, item_data: dict) -> ft.View:
         return True
 
     async def _on_scan_qr(e):
-        """扫码签到 — 弹窗：选择二维码图片或手动输入"""
-        from utils.qr_decoder import decode_qr_image
-
+        """扫码签到 — 弹窗：粘贴/输入二维码内容并校验"""
         qr_input = ft.TextField(
-            hint_text="或粘贴二维码内容",
+            label="二维码内容",
+            hint_text="使用手机或扫码枪扫描点位二维码后粘贴此处",
             border_color=ft.colors.GREY_300,
             text_size=14,
+            autofocus=True,
+            multiline=False,
+            on_submit=lambda ev: page.run_task(_confirm, ev),
         )
-        picked_file_text = ft.Text("", size=12, color=ft.colors.GREY_700)
-
-        async def _on_files_picked(ev: ft.FilePickerResultEvent):
-            if not ev.files:
-                return
-            f = ev.files[0]
-            picked_file_text.value = f"已选择：{f.name}"
-            await page.update_async()
-            decoded = decode_qr_image(f.path)
-            if decoded:
-                qr_input.value = decoded
-                picked_file_text.value = f"已识别：{f.name}"
-            else:
-                picked_file_text.value = f"未识别到二维码：{f.name}"
-            await page.update_async()
-
-        file_picker = ft.FilePicker(on_result=_on_files_picked)
-        page.overlay.append(file_picker)
-        await page.update_async()
-
-        async def _pick(ev):
-            file_picker.pick_files(
-                allow_multiple=False,
-                allowed_extensions=["jpg", "jpeg", "png", "bmp", "webp"],
-                dialog_title="选择二维码图片",
-            )
 
         async def _confirm(ev):
             ok = await _verify_and_sign(qr_input.value or "")
             if ok:
                 dlg.open = False
-                try:
-                    page.overlay.remove(file_picker)
-                except ValueError:
-                    pass
                 await page.update_async()
 
         async def _cancel(ev):
             dlg.open = False
-            try:
-                page.overlay.remove(file_picker)
-            except ValueError:
-                pass
             await page.update_async()
 
         dlg = ft.AlertDialog(
             title=ft.Text("扫码签到"),
             content=ft.Column(
                 controls=[
-                    ft.Text("选择二维码图片自动识别，或手动粘贴二维码内容",
-                            size=13, color=ft.colors.GREY_700),
-                    ft.ElevatedButton(
-                        "选择二维码图片",
-                        icon=ft.icons.IMAGE,
-                        on_click=_pick,
+                    ft.Text(
+                        "请使用手机相机或扫码枪扫描点位二维码，将识别到的内容粘贴到下方输入框。",
+                        size=13, color=ft.colors.GREY_700,
                     ),
-                    picked_file_text,
                     qr_input,
                 ],
                 spacing=10,
