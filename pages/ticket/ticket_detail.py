@@ -78,6 +78,29 @@ async def build_ticket_detail_page(
         except Exception:
             pass
 
+        # 加载证书编号（动火人/监护人），通过证书表 id 换取 zsbh
+        for code in ("dhzsbh", "jhrzsbh"):
+            ids_str = base_info.get(code, "")
+            if not ids_str:
+                continue
+            try:
+                ids = [i for i in str(ids_str).split(",") if i]
+                if not ids:
+                    continue
+                limit_in = "','".join(ids)
+                res = await svc.get_table_data({
+                    "table": "tb_base_certificate",
+                    "columns": "GROUP_CONCAT(zsbh) zsbh",
+                    "limits": f" id in ('{limit_in}')",
+                })
+                rows_ = res if isinstance(res, list) else []
+                if rows_ and isinstance(rows_[0], dict) and rows_[0].get("zsbh"):
+                    base_info[f"{code}_text"] = rows_[0]["zsbh"]
+                else:
+                    base_info[f"{code}_text"] = ids_str  # 旧版兼容
+            except Exception:
+                base_info[f"{code}_text"] = ids_str
+
         _build_step_indicator()
         _build_grid()
         _build_camera_list()
@@ -260,7 +283,11 @@ async def build_ticket_detail_page(
         all_f = get_detail_display_fields(config)
         rows = []
         for f in all_f:
-            val = base_info.get(f"{f.key}_dictText") or base_info.get(f.key, "")
+            # 证书类字段优先用 _text（证书编号而非证书 id）
+            if f.key in ("dhzsbh", "jhrzsbh"):
+                val = base_info.get(f"{f.key}_text", "") or base_info.get(f.key, "")
+            else:
+                val = base_info.get(f"{f.key}_dictText") or base_info.get(f.key, "")
             rows.append(readonly_field(f.label, str(val) if val else ""))
 
         return ft.ListView(controls=rows, expand=True, spacing=0)
@@ -268,16 +295,29 @@ async def build_ticket_detail_page(
     # --- 安全分析 ---
     async def _show_detection_detail(insp: dict):
         """动火分析项详情弹框（只读）。"""
+        def _img_src(p: str) -> str:
+            return p if p.startswith("http") else f"{app_state.host}/jeecg-boot/sys/common/static/{p}"
+
         sign_path = insp.get("signArea", "")
         sign_widget: ft.Control
         if sign_path:
-            sign_src = (
-                sign_path if sign_path.startswith("http")
-                else f"{app_state.host}/jeecg-boot/sys/common/static/{sign_path}"
-            )
-            sign_widget = ft.Image(src=sign_src, height=80, fit=ft.ImageFit.CONTAIN)
+            sign_widget = ft.Image(src=_img_src(sign_path), height=80, fit=ft.ImageFit.CONTAIN)
         else:
             sign_widget = ft.Text("未签名", size=12, color=ft.colors.GREY_500)
+
+        # 现场照片（photo 可能是逗号分隔多张）
+        photo_str = str(insp.get("photo", "") or "")
+        photo_paths = [p for p in photo_str.split(",") if p]
+        if photo_paths:
+            photo_widget: ft.Control = ft.Row(
+                controls=[
+                    ft.Image(src=_img_src(p), width=80, height=80, fit=ft.ImageFit.COVER)
+                    for p in photo_paths
+                ],
+                wrap=True, spacing=6, run_spacing=6,
+            )
+        else:
+            photo_widget = ft.Text("无现场照片", size=12, color=ft.colors.GREY_500)
 
         dlg = ft.AlertDialog(
             title=ft.Text(f"分析点：{insp.get('fxdmc', '')}"),
@@ -290,11 +330,15 @@ async def build_ticket_detail_page(
                         readonly_field("分析结果 / %", str(insp.get("fxjg", "") or "-")),
                         readonly_field("结果备注", str(insp.get("remark", "") or "-")),
                         readonly_field("提交时间", str(insp.get("submitTime", "") or "-")),
+                        ft.Text("现场照片", size=13, weight=ft.FontWeight.W_500),
+                        photo_widget,
                         ft.Text("分析人签字", size=13, weight=ft.FontWeight.W_500),
                         sign_widget,
                     ],
                     tight=True, spacing=6,
+                    scroll=ft.ScrollMode.AUTO,
                 ),
+                height=460,
             ),
             actions=[ft.TextButton("关闭", on_click=lambda e: _close_dialog(dlg))],
         )
@@ -393,12 +437,14 @@ async def build_ticket_detail_page(
             harm_list = []
 
         # 安全措施 — API 返回 {data: [...], permissions, step, zyrPermissions, ...}
+        zyr_sign_area = ""
         try:
             measures = await svc.get_measure_by_id(config.api_prefix, ticket_id)
             if isinstance(measures, dict):
                 measure_items = measures.get("data", []) or []
                 permissions = measures.get("permissions", False)
                 measure_step = measures.get("step", 0)
+                zyr_sign_area = measures.get("zyrSignArea", "") or ""
             elif isinstance(measures, list):
                 measure_items = measures
             else:
@@ -406,7 +452,8 @@ async def build_ticket_detail_page(
         except Exception:
             measure_items = []
 
-        disabled = current_step[0] >= 2
+        # 对齐 uniapp：step == 2 时才是"当前可编辑"状态，否则已提交
+        can_edit = str(measure_step) == "2"
 
         # 危害辨识显示
         whbs_text = base_info.get("whbs_dictText", "")
@@ -458,11 +505,12 @@ async def build_ticket_detail_page(
 
             def _make_measure_click(item_data):
                 async def _click(e):
-                    if disabled:
+                    # 对齐 uniapp：非当前步骤统一提示
+                    if not can_edit:
+                        page.snack_bar = ft.SnackBar(ft.Text("已提交的流程不可再修改"), open=True)
+                        await page.update_async()
                         return
-                    # 无操作权限时提示（对齐用户预期）
-                    has_flag = bool(item_data.get("flag", True))
-                    if not has_flag:
+                    if not permissions:
                         page.snack_bar = ft.SnackBar(ft.Text("暂无操作权限"), open=True)
                         await page.update_async()
                         return
@@ -491,7 +539,35 @@ async def build_ticket_detail_page(
                     border_radius=8,
                     margin=ft.margin.only(bottom=4),
                     on_click=_make_measure_click(m),
-                    ink=not disabled,
+                    ink=can_edit,
+                )
+            )
+
+        # 作业人签字区域（对齐 uniapp）
+        rows.append(ft.Text("作业人签字", size=14, weight=ft.FontWeight.BOLD))
+        if zyr_sign_area:
+            zyr_src = (
+                zyr_sign_area if zyr_sign_area.startswith("http")
+                else f"{app_state.host}/jeecg-boot/sys/common/static/{zyr_sign_area}"
+            )
+            rows.append(
+                ft.Container(
+                    content=ft.Image(src=zyr_src, height=80, fit=ft.ImageFit.CONTAIN),
+                    padding=12,
+                    bgcolor=ft.colors.WHITE,
+                    border_radius=8,
+                    margin=ft.margin.only(bottom=8),
+                    alignment=ft.alignment.center_left,
+                )
+            )
+        else:
+            rows.append(
+                ft.Container(
+                    content=ft.Text("作业人未签字", size=12, color=ft.colors.GREY_500),
+                    padding=12,
+                    bgcolor=ft.colors.WHITE,
+                    border_radius=8,
+                    margin=ft.margin.only(bottom=8),
                 )
             )
 
@@ -536,11 +612,9 @@ async def build_ticket_detail_page(
 
                 def _make_confess_click(person_data):
                     async def _click(e):
-                        # 已签名或步骤已完成：静默（只查看）
-                        if str(person_data.get("status")) == "2" or disabled:
-                            return
+                        # 对齐 uniapp：无 flag → 权限提示；有 flag → 进入详情（已签名则只读）
                         if not person_data.get("flag"):
-                            page.snack_bar = ft.SnackBar(ft.Text("暂无操作权限"), open=True)
+                            page.snack_bar = ft.SnackBar(ft.Text("您未有权限！"), open=True)
                             await page.update_async()
                             return
                         await _go_confess_sign(person_data)
@@ -628,10 +702,8 @@ async def build_ticket_detail_page(
 
                 def _make_approve_click(person_data):
                     async def _click(e):
-                        if str(person_data.get("status")) == "2" or disabled:
-                            return
                         if not person_data.get("flag"):
-                            page.snack_bar = ft.SnackBar(ft.Text("暂无操作权限"), open=True)
+                            page.snack_bar = ft.SnackBar(ft.Text("您未有权限！"), open=True)
                             await page.update_async()
                             return
                         await _go_approve_sign(person_data)
@@ -769,10 +841,8 @@ async def build_ticket_detail_page(
 
                 def _make_acceptance_click(person_data):
                     async def _click(e):
-                        if str(person_data.get("status")) == "2" or disabled:
-                            return
                         if not person_data.get("flag"):
-                            page.snack_bar = ft.SnackBar(ft.Text("暂无操作权限"), open=True)
+                            page.snack_bar = ft.SnackBar(ft.Text("您未有权限！"), open=True)
                             await page.update_async()
                             return
                         await _go_acceptance_sign(person_data)

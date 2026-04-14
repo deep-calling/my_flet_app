@@ -370,7 +370,6 @@ def get_detail_display_fields(config: TicketTypeConfig) -> list[FieldDef]:
         _pop("sgdw", "作业单位"),
         _pop("zyfzr", "作业负责人"),
         _pop("sjdqttszy", "关联的其他特殊作业"),
-        _pop("sjdqttszyaqzyzbh", "关联的其他特殊作业证编号"),
         _pop("whbs", "风险辨识结果"),
         _pop("startTime", "动火作业实施开始时间"),
         _pop("dhEndTime", "动火作业实施结束时间"),
@@ -388,8 +387,9 @@ def get_detail_display_fields(config: TicketTypeConfig) -> list[FieldDef]:
         _pop("dhqgwdbbcyp", "动火前，岗位顶班班长验票"),
         _pop("ysr", "验收人"),
     ]
-    # 保留未枚举到的其他字段（如摄像头选择等），追加在末尾
-    ordered.extend(pool.values())
+    # 不显示的字段：摄像头、表单里的起止时间、涉及的其他特殊作业证编号
+    _EXCLUDE = {"cameraId", "beginTime", "endTime", "sjdqttszyaqzyzbh"}
+    ordered.extend(v for k, v in pool.items() if k not in _EXCLUDE)
     return ordered
 
 
