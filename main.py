@@ -121,7 +121,7 @@ async def _main_inner(page: ft.Page):
 
     def _build_placeholder_tabbar_view(selected_index: int = 0) -> ft.View:
         """轻量级 TabBar 占位视图（不加载内容，不发起 API 请求）。
-        用于子页面路由栈底部，用户按返回时会触发 view_pop 重新导航到 /home。"""
+        作为子页面路由栈底部，AppBar 返回按钮弹出上层 view 后若栈底只剩该占位视图则重建 /home。"""
 
         nav_bar = ft.NavigationBar(
             selected_index=selected_index,
@@ -133,7 +133,7 @@ async def _main_inner(page: ft.Page):
             ],
         )
 
-        return ft.View(
+        view = ft.View(
             route="/home",
             controls=[ft.Container(expand=True)],
             navigation_bar=nav_bar,
@@ -141,6 +141,8 @@ async def _main_inner(page: ft.Page):
             spacing=0,
             bgcolor=ft.colors.GREY_100,
         )
+        view.data = "_placeholder_"
+        return view
 
     # --- 路由解析辅助 ---
     def _parse_route(raw: str) -> tuple[str, dict[str, str]]:
@@ -154,10 +156,19 @@ async def _main_inner(page: ft.Page):
 
     # 路由变更处理
     async def route_change(e: ft.RouteChangeEvent):
-        page.views.clear()
-
         raw_route = page.route
         route, qparams = _parse_route(raw_route)
+
+        # 是否保留现有视图栈（保留则支持返回上一页；只有根路由/登录/鉴权失败才清空）
+        _root_routes = {"/login", "/login_set", "/home"}
+        _preserve_stack = (
+            route not in _root_routes
+            and bool(app_state.token)
+            and bool(page.views)
+            and page.views[0].data == "_placeholder_"
+        )
+        if not _preserve_stack:
+            page.views.clear()
 
         # --- 登录拦截 ---
         if route not in _AUTH_WHITELIST and not app_state.token:
@@ -733,6 +744,21 @@ async def _main_inner(page: ft.Page):
         # ========== 兜底：未匹配路由 ==========
         else:
             page.views.append(_build_placeholder_tabbar_view(0))
+
+        # 去重占位视图：保留栈底第一个占位，其余的删除（子路由导航会重复 append）
+        if _preserve_stack and len(page.views) > 1:
+            seen_placeholder = False
+            kept: list[ft.View] = []
+            for v in page.views:
+                if v.data == "_placeholder_":
+                    if not seen_placeholder:
+                        kept.append(v)
+                        seen_placeholder = True
+                    # 跳过重复占位
+                else:
+                    kept.append(v)
+            page.views.clear()
+            page.views.extend(kept)
 
         await page.update_async()
 

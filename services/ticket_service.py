@@ -211,21 +211,21 @@ async def check_begin_btn(api_prefix: str, ticket_id: str, username: str) -> Any
 async def begin_ticket(api_prefix: str, ticket_id: str) -> Any:
     """开始作业"""
     return await api_client.post(
-        f"{api_prefix}/begin", json={"id": ticket_id}
+        f"{api_prefix}/begin", json={"ticketId": ticket_id}
     )
 
 
 async def pause_ticket(api_prefix: str, ticket_id: str) -> Any:
     """暂停作业"""
     return await api_client.post(
-        f"{api_prefix}/pause", json={"id": ticket_id}
+        f"{api_prefix}/pause", json={"ticketId": ticket_id}
     )
 
 
 async def complete_ticket(api_prefix: str, ticket_id: str) -> Any:
     """完成作业"""
     return await api_client.post(
-        f"{api_prefix}/complete", json={"id": ticket_id}
+        f"{api_prefix}/complete", json={"ticketId": ticket_id}
     )
 
 

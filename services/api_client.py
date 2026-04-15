@@ -93,8 +93,28 @@ class ApiClient:
         raw = await asyncio.to_thread(self._do_request, url, None, headers, "DELETE")
         return await self._handle_response(raw)
 
-    async def upload(self, path: str, file_path: str, field_name: str = "file") -> Any:
-        """上传文件（multipart/form-data）"""
+    async def upload(self, path: str, file_path: str, field_name: str = "file") -> str:
+        """上传文件（multipart/form-data），返回服务器相对路径"""
+        import os
+        filename = os.path.basename(file_path)
+        with open(file_path, "rb") as f:
+            file_data = f.read()
+        return await self.upload_bytes(path, file_data, filename, field_name)
+
+    async def upload_bytes(
+        self,
+        path: str,
+        file_data: bytes,
+        filename: str = "upload.png",
+        field_name: str = "file",
+        content_type: str = "application/octet-stream",
+    ) -> str:
+        """直接上传字节内容（multipart/form-data），返回服务器相对路径。
+
+        JeecgBoot 上传接口响应格式：
+        { "success": true, "message": "<relative/path>", "code": 200, "result": null }
+        文件路径在 message 字段。
+        """
         url = f"{self.base_url}{path}"
         boundary = uuid4().hex
 
@@ -104,21 +124,28 @@ class ApiClient:
         if app_state.token:
             headers["X-Access-Token"] = app_state.token
 
-        # 读取文件内容
-        import os
-        filename = os.path.basename(file_path)
-        with open(file_path, "rb") as f:
-            file_data = f.read()
-
-        # 构建 multipart body
         body = (
             f"--{boundary}\r\n"
             f'Content-Disposition: form-data; name="{field_name}"; filename="{filename}"\r\n'
-            f"Content-Type: application/octet-stream\r\n\r\n"
+            f"Content-Type: {content_type}\r\n\r\n"
         ).encode("utf-8") + file_data + f"\r\n--{boundary}--\r\n".encode("utf-8")
 
         raw = await asyncio.to_thread(self._do_request, url, body, headers, "POST")
-        return await self._handle_response(raw)
+        code = raw.get("code", -1)
+
+        if code == 500 and "Token失效" in str(raw.get("message", "")):
+            app_state.token = ""
+            if self.on_logout:
+                await self.on_logout()
+            raise PermissionError("Token失效，请重新登录")
+
+        if raw.get("success") is True or code in (200, 0):
+            msg = raw.get("message") or raw.get("result") or ""
+            if isinstance(msg, str) and msg:
+                return msg
+            raise Exception("上传成功但未返回文件路径")
+
+        raise Exception(raw.get("message", "上传失败"))
 
 
 # 全局单例

@@ -672,6 +672,13 @@ async def build_ticket_add_page(
 
         try:
             data = dict(form_data)
+            if not data.get("zb"):
+                import json as _json
+                data["zb"] = _json.dumps({
+                    "sysOrgCode": "A01A01",
+                    "height": "2",
+                    "locations": [{"lng": 120.0, "lat": 30.0}],
+                })
             if sq_id:
                 data["id"] = sq_id
                 await svc.ticket_edit(config.edit_path, data)

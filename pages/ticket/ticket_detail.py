@@ -13,6 +13,8 @@ from pages.ticket.config import (
 from services import ticket_service as svc
 from utils.app_state import app_state
 from components.form_fields import readonly_field
+from components.sign_pad import SignPad
+from components.image_upload import ImageUpload
 
 
 # 步骤图标映射
@@ -52,6 +54,22 @@ async def build_ticket_detail_page(
     camera_column = ft.Column(spacing=4)
     popup_content = ft.Container(expand=True)
     popup_visible = [False]
+
+    # 当前打开的 BottomSheet + step index，用于提交/新增成功后关闭并重新打开以刷新
+    current_bs: list[ft.BottomSheet | None] = [None]
+    current_section_index: list[int] = [-1]
+
+    def _close_current_bs():
+        """关闭当前 BottomSheet（只设置 open=False，让 Flet 自己收尾，不要主动从 overlay 移除，
+        否则客户端会因为状态不同步而渲染空白）。"""
+        bs = current_bs[0]
+        if bs is not None:
+            try:
+                bs.open = False
+            except Exception:
+                pass
+        current_bs[0] = None
+        current_section_index[0] = -1
 
     # --- 加载详情 ---
     async def _load_detail():
@@ -227,6 +245,20 @@ async def build_ticket_detail_page(
     # --- 显示各步骤弹出层 ---
     async def _show_section(index: int):
         """根据步骤 index 显示不同的弹出内容"""
+        # 先关掉已有的 section BottomSheet
+        old_bs = current_bs[0]
+        if old_bs is not None:
+            try:
+                old_bs.open = False
+            except Exception:
+                pass
+            current_bs[0] = None
+            current_section_index[0] = -1
+            try:
+                await page.update_async()
+            except Exception:
+                pass
+
         if index == 0:
             content = _build_info_section()
         elif index == 1:
@@ -242,7 +274,13 @@ async def build_ticket_detail_page(
         else:
             content = ft.Text("未知步骤")
 
-        # 弹出层
+        def _close_self(_e=None):
+            _close_current_bs()
+            try:
+                page.update()
+            except Exception:
+                pass
+
         bs = ft.BottomSheet(
             content=ft.Container(
                 content=ft.Column(
@@ -253,10 +291,7 @@ async def build_ticket_detail_page(
                                     DETAIL_STEPS[index]["label"] if index != 1 else config.analysis_title,
                                     size=16, weight=ft.FontWeight.BOLD,
                                 ),
-                                ft.IconButton(
-                                    ft.icons.CLOSE,
-                                    on_click=lambda e: _close_bs(bs),
-                                ),
+                                ft.IconButton(ft.icons.CLOSE, on_click=_close_self),
                             ],
                             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                         ),
@@ -269,7 +304,10 @@ async def build_ticket_detail_page(
                 height=page.height * 0.84 if page.height else 600,
             ),
             open=True,
+            on_dismiss=_close_self,
         )
+        current_bs[0] = bs
+        current_section_index[0] = index
         page.overlay.append(bs)
         await page.update_async()
 
@@ -350,12 +388,166 @@ async def build_ticket_detail_page(
         dlg.open = False
         page.update()
 
+    async def _open_detection_form(existing: dict | None):
+        """打开新增/编辑 安全检测 对话框"""
+        is_edit = existing is not None
+        data = dict(existing) if existing else {}
+
+        # 按作业类型选择表单字段（盲板抽堵与其他类型不同）
+        is_mbcd = config.code == "MBCD"
+
+        form: dict[str, Any] = {
+            "id": data.get("id", ""),
+            "fxdmc": data.get("fxdmc", ""),
+            "fxr": data.get("fxr", ""),
+            "fxrName": data.get("fxrName", ""),
+            "dbxqt": data.get("dbxqt", ""),
+            "mbwzt": data.get("mbwzt", ""),
+            "mbbh": data.get("mbbh", ""),
+            "fxjg": data.get("fxjg", ""),
+            "remark": data.get("remark", ""),
+            "photo": data.get("photo", ""),
+            "signArea": data.get("signArea", ""),
+        }
+
+        async def _on_sign(path: str):
+            form["signArea"] = path
+
+        sign_widget = SignPad(
+            page, on_success=_on_sign, sign_image=form["signArea"], width=300, height=160,
+        )
+
+        initial_photos = [p for p in str(form["photo"]).split(",") if p]
+
+        async def _on_photo(_p: str):
+            form["photo"] = ",".join(photo_widget.uploaded_paths)
+
+        photo_widget = ImageUpload(
+            page, on_upload_success=_on_photo,
+            initial_images=initial_photos, max_count=9,
+        )
+
+        fxdmc_field = ft.TextField(
+            label="分析点名称", value=form["fxdmc"],
+            on_change=lambda e: form.__setitem__("fxdmc", e.control.value),
+            text_size=14, border_color=ft.colors.GREY_300, dense=True,
+        )
+        fxr_field = ft.TextField(
+            label="分析人", value=form["fxrName"],
+            on_change=lambda e: form.__setitem__("fxrName", e.control.value),
+            text_size=14, border_color=ft.colors.GREY_300, dense=True,
+        )
+
+        extra_fields: list[ft.Control] = []
+        if is_mbcd:
+            mbwzt_upload = ImageUpload(
+                page,
+                on_upload_success=lambda p: _set_mbwzt(p),
+                initial_images=[p for p in str(form["mbwzt"]).split(",") if p],
+                max_count=3,
+            )
+
+            async def _set_mbwzt(_p):
+                form["mbwzt"] = ",".join(mbwzt_upload.uploaded_paths)
+
+            extra_fields.append(ft.Text("盲板位置图", size=13, weight=ft.FontWeight.W_500))
+            extra_fields.append(mbwzt_upload)
+            extra_fields.append(
+                ft.TextField(
+                    label="盲板编号", value=form["mbbh"],
+                    on_change=lambda e: form.__setitem__("mbbh", e.control.value),
+                    text_size=14, border_color=ft.colors.GREY_300, dense=True,
+                )
+            )
+        else:
+            extra_fields.append(
+                ft.TextField(
+                    label="代表性气体", value=form["dbxqt"],
+                    on_change=lambda e: form.__setitem__("dbxqt", e.control.value),
+                    text_size=14, border_color=ft.colors.GREY_300, dense=True,
+                )
+            )
+
+        fxjg_field = ft.TextField(
+            label="分析结果" + ("" if is_mbcd else " / %"),
+            value=form["fxjg"],
+            on_change=lambda e: form.__setitem__("fxjg", e.control.value),
+            text_size=14, border_color=ft.colors.GREY_300, dense=True,
+        )
+        remark_field = ft.TextField(
+            label="结果备注", value=form["remark"],
+            multiline=True, min_lines=2, max_lines=4,
+            on_change=lambda e: form.__setitem__("remark", e.control.value),
+            text_size=14, border_color=ft.colors.GREY_300,
+        )
+
+        dlg_ref: list[ft.AlertDialog] = []
+
+        async def _close(_e=None):
+            if dlg_ref:
+                dlg_ref[0].open = False
+                await page.update_async()
+
+        async def _confirm(_e):
+            if not form["fxdmc"]:
+                page.snack_bar = ft.SnackBar(ft.Text("请输入分析点名称"), open=True)
+                await page.update_async()
+                return
+            if not form["fxrName"]:
+                page.snack_bar = ft.SnackBar(ft.Text("请输入分析人"), open=True)
+                await page.update_async()
+                return
+
+            payload = {k: v for k, v in form.items()}
+            payload["ticketId"] = ticket_id
+            try:
+                if is_edit:
+                    await svc.edit_inspection(config.api_prefix, payload)
+                    msg = "编辑成功"
+                else:
+                    payload.pop("id", None)
+                    await svc.add_inspection(config.api_prefix, payload)
+                    msg = "添加成功"
+                await _close()
+                page.snack_bar = ft.SnackBar(ft.Text(msg), open=True)
+                await _load_detail()
+            except Exception as ex:
+                page.snack_bar = ft.SnackBar(ft.Text(f"失败：{ex}"), open=True)
+                await page.update_async()
+
+        body_col = ft.Column(
+            controls=[
+                fxdmc_field,
+                fxr_field,
+                *extra_fields,
+                fxjg_field,
+                remark_field,
+                ft.Text("现场照片", size=13, weight=ft.FontWeight.W_500),
+                photo_widget,
+                ft.Text("分析人签字", size=13, weight=ft.FontWeight.W_500),
+                sign_widget,
+            ],
+            tight=True, spacing=8, scroll=ft.ScrollMode.AUTO,
+        )
+
+        dlg = ft.AlertDialog(
+            title=ft.Text("编辑安全检测" if is_edit else "添加安全检测"),
+            content=ft.Container(content=body_col, width=340, height=480),
+            actions=[
+                ft.TextButton("取消", on_click=lambda e: _close()),
+                ft.TextButton("确认", on_click=_confirm),
+            ],
+        )
+        dlg_ref.append(dlg)
+        page.dialog = dlg
+        dlg.open = True
+        await page.update_async()
+
     async def _build_detection_section() -> ft.Control:
         """安全分析步骤"""
         permissions = False
         try:
             inspections = await svc.get_inspection_by_id(config.api_prefix, ticket_id)
-            # API 返回 {data: [...], permissions: bool}
             if isinstance(inspections, dict):
                 items = inspections.get("data", []) or []
                 permissions = inspections.get("permissions", False)
@@ -366,19 +558,27 @@ async def build_ticket_detail_page(
         except Exception:
             items = []
 
-        # 检查是否需要分析
-        need_analysis = str(base_info.get("sfxyaqjc", "1")) == "1"
+        need_analysis = str(base_info.get("sfxyaqjc", config.analysis_default or "1")) == "1"
         if not need_analysis:
-            return ft.Text("不需要进行分析!", color=ft.colors.GREY_500)
+            return ft.Container(
+                content=ft.Text("不需要进行分析!", color=ft.colors.GREY_500),
+                alignment=ft.alignment.center,
+                padding=20,
+            )
 
+        disabled = current_step[0] >= 1
+
+        rows: list[ft.Control] = []
         if not items:
-            rows: list[ft.Control] = [ft.Text("暂无分析数据", color=ft.colors.GREY_500)]
+            rows.append(ft.Text("暂无分析数据", color=ft.colors.GREY_500))
         else:
-            rows = []
             for insp in items:
-                def _make_detection_click(data):
+                def _make_edit_click(data):
                     async def _click(e):
-                        await _show_detection_detail(data)
+                        if permissions and not disabled:
+                            await _open_detection_form(data)
+                        else:
+                            await _show_detection_detail(data)
                     return _click
 
                 rows.append(
@@ -386,7 +586,11 @@ async def build_ticket_detail_page(
                         content=ft.Column([
                             ft.Text(f"分析点: {insp.get('fxdmc', '')}", size=13, weight=ft.FontWeight.W_500),
                             ft.Text(f"分析人: {insp.get('fxrName', '')}", size=12, color=ft.colors.GREY_600),
-                            ft.Text(f"代表性气体: {insp.get('dbxqt', '')}", size=12, color=ft.colors.GREY_600),
+                            ft.Text(
+                                f"{'盲板编号' if config.code == 'MBCD' else '代表性气体'}: "
+                                f"{insp.get('mbbh', '') if config.code == 'MBCD' else insp.get('dbxqt', '')}",
+                                size=12, color=ft.colors.GREY_600,
+                            ),
                             ft.Text(f"分析结果: {insp.get('fxjg', '')}", size=12, color=ft.colors.GREY_600),
                             ft.Text(f"提交时间: {insp.get('submitTime', '')}", size=12, color=ft.colors.GREY_600),
                         ], spacing=4),
@@ -394,41 +598,68 @@ async def build_ticket_detail_page(
                         bgcolor=ft.colors.GREY_50,
                         border_radius=8,
                         margin=ft.margin.only(bottom=8),
-                        on_click=_make_detection_click(insp),
+                        on_click=_make_edit_click(insp),
                         ink=True,
                     )
                 )
 
-        disabled = current_step[0] >= 1
-
         async def _submit_detection(e):
             try:
                 await svc.submit_inspection(config.api_prefix, ticket_id)
+                # 先关闭 BottomSheet 并刷掉客户端状态，再 reload —— 避免点击事件仍在
+                # 处理时改动控件树导致 Flet 渲染空白
+                bs = current_bs[0]
+                if bs is not None:
+                    try:
+                        bs.open = False
+                    except Exception:
+                        pass
+                    current_bs[0] = None
+                    current_section_index[0] = -1
+                    try:
+                        await page.update_async()
+                    except Exception:
+                        pass
                 page.snack_bar = ft.SnackBar(ft.Text("提交成功"), open=True)
                 await _load_detail()
             except Exception as ex:
+                import traceback
+                traceback.print_exc()
                 page.snack_bar = ft.SnackBar(ft.Text(f"失败：{ex}"), open=True)
-                await page.update_async()
+                try:
+                    await page.update_async()
+                except Exception:
+                    pass
 
-        if permissions and not disabled and items:
-            rows.append(
+        async def _add_detection(e):
+            await _open_detection_form(None)
+
+        # 操作按钮：添加安全检测 + 提交
+        if permissions and not disabled:
+            btn_row: list[ft.Control] = [
                 ft.ElevatedButton(
-                    "提交分析结果",
-                    on_click=_submit_detection,
-                    bgcolor=ft.colors.BLUE,
-                    color=ft.colors.WHITE,
+                    "添加安全检测", on_click=_add_detection,
+                    bgcolor=ft.colors.BLUE, color=ft.colors.WHITE, expand=True,
+                ),
+            ]
+            if items:
+                btn_row.append(
+                    ft.ElevatedButton(
+                        "提交", on_click=_submit_detection,
+                        bgcolor=ft.colors.GREEN, color=ft.colors.WHITE, expand=True,
+                    )
                 )
-            )
+            rows.append(ft.Row(controls=btn_row, spacing=8))
 
         return ft.ListView(controls=rows, expand=True)
 
     # --- 安全评估 ---
     async def _build_assessment_section() -> ft.Control:
-        """安全评估 — 危害辨识 + 安全措施"""
+        """安全评估 — 危害辨识 + 安全措施 + 作业人签字"""
         permissions = False
+        zyr_permissions = False
         measure_step = 0
 
-        # 危害辨识
         try:
             harm_list = await svc.get_dict_harm(config.api_prefix, ticket_id)
             if not isinstance(harm_list, list):
@@ -436,15 +667,15 @@ async def build_ticket_detail_page(
         except Exception:
             harm_list = []
 
-        # 安全措施 — API 返回 {data: [...], permissions, step, zyrPermissions, ...}
-        zyr_sign_area = ""
+        zyr_sign_area_init = ""
         try:
             measures = await svc.get_measure_by_id(config.api_prefix, ticket_id)
             if isinstance(measures, dict):
                 measure_items = measures.get("data", []) or []
                 permissions = measures.get("permissions", False)
+                zyr_permissions = measures.get("zyrPermissions", False)
                 measure_step = measures.get("step", 0)
-                zyr_sign_area = measures.get("zyrSignArea", "") or ""
+                zyr_sign_area_init = measures.get("zyrSignArea", "") or ""
             elif isinstance(measures, list):
                 measure_items = measures
             else:
@@ -452,35 +683,143 @@ async def build_ticket_detail_page(
         except Exception:
             measure_items = []
 
-        # 对齐 uniapp：step == 2 时才是"当前可编辑"状态，否则已提交
         can_edit = str(measure_step) == "2"
 
-        # 危害辨识显示
-        whbs_text = base_info.get("whbs_dictText", "")
+        # 已选中的危害辨识 value 列表
+        whbs_raw = str(base_info.get("whbs", "") or "")
+        existing_whbs_values = [v for v in whbs_raw.split(",") if v]
+        # 展示文本（优先用 _dictText，否则用 value 直接显示）
+        whbs_text_init = (
+            base_info.get("whbs_dictText")
+            or ",".join(
+                h.get("text", "") for h in harm_list
+                if str(h.get("value", "")) in existing_whbs_values
+            )
+            or ""
+        )
+        # 可变状态
+        selected_whbs_values = list(existing_whbs_values)
+        zyr_sign_area_state = [zyr_sign_area_init]
+        whbs_display = ft.Text(
+            whbs_text_init or "未选择", size=12,
+            color=ft.colors.GREY_700 if whbs_text_init else ft.colors.GREY_500,
+        )
+
+        async def _open_harm_picker(_e):
+            if not permissions:
+                page.snack_bar = ft.SnackBar(ft.Text("暂无操作权限"), open=True)
+                await page.update_async()
+                return
+            if not harm_list:
+                page.snack_bar = ft.SnackBar(ft.Text("暂无可选危害辨识项"), open=True)
+                await page.update_async()
+                return
+
+            local_selected = set(selected_whbs_values)
+            check_rows: list[ft.Control] = []
+
+            def _make_checkbox(item_value: str, item_text: str):
+                def _on_change(e):
+                    if e.control.value:
+                        local_selected.add(item_value)
+                    else:
+                        local_selected.discard(item_value)
+                return ft.Checkbox(
+                    label=item_text,
+                    value=item_value in local_selected,
+                    on_change=_on_change,
+                )
+
+            for h in harm_list:
+                v = str(h.get("value", ""))
+                t = h.get("text", "")
+                check_rows.append(_make_checkbox(v, t))
+
+            bs_ref: list[ft.BottomSheet] = []
+
+            async def _close_bs():
+                if bs_ref:
+                    bs_ref[0].open = False
+                    await page.update_async()
+
+            async def _confirm(_ev):
+                selected_whbs_values.clear()
+                selected_whbs_values.extend(sorted(local_selected))
+                whbs_display.value = ",".join(
+                    h.get("text", "") for h in harm_list
+                    if str(h.get("value", "")) in selected_whbs_values
+                ) or "未选择"
+                whbs_display.color = ft.colors.GREY_700 if selected_whbs_values else ft.colors.GREY_500
+                await _close_bs()
+                await page.update_async()
+
+            bs = ft.BottomSheet(
+                content=ft.Container(
+                    content=ft.Column(
+                        controls=[
+                            ft.Row([
+                                ft.Text("选择危害辨识", size=15, weight=ft.FontWeight.BOLD),
+                                ft.IconButton(ft.icons.CLOSE, on_click=lambda e: _close_bs()),
+                            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                            ft.Divider(height=1),
+                            ft.ListView(controls=check_rows, expand=True, spacing=0),
+                            ft.ElevatedButton(
+                                "确认", on_click=_confirm,
+                                bgcolor=ft.colors.BLUE, color=ft.colors.WHITE,
+                                width=None, expand=True,
+                            ),
+                        ],
+                        spacing=8, expand=True,
+                    ),
+                    padding=16,
+                    height=page.height * 0.7 if page.height else 500,
+                ),
+                open=True,
+            )
+            bs_ref.append(bs)
+            page.overlay.append(bs)
+            await page.update_async()
+
         rows: list[ft.Control] = [
             ft.Text("危害辨识", size=14, weight=ft.FontWeight.BOLD),
             ft.Container(
-                content=ft.Text(whbs_text or "暂无", size=12, color=ft.colors.GREY_600),
+                content=ft.Row(
+                    controls=[
+                        ft.Container(content=whbs_display, expand=True),
+                        ft.Icon(ft.icons.CHEVRON_RIGHT, color=ft.colors.GREY_500),
+                    ],
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
                 padding=12,
                 bgcolor=ft.colors.GREY_50,
                 border_radius=8,
                 margin=ft.margin.only(bottom=8),
+                on_click=_open_harm_picker,
+                ink=True,
             ),
             ft.Text("安全措施", size=14, weight=ft.FontWeight.BOLD),
         ]
 
-        for m in measure_items:
+        measure_count = len(measure_items)
+        for idx, m in enumerate(measure_items):
+            is_last = idx == measure_count - 1
             sign_area = m.get("signArea", "")
-            selected = m.get("selected", "")
-            # 有签名或有选择状态表示已确认
-            if sign_area:
-                status_text = "涉及" if str(selected) == "1" else ("不涉及" if str(selected) == "2" else "已确认")
+            selected = str(m.get("selected", ""))
+
+            # 状态文本计算
+            if selected == "2":
+                status_text = "不涉及"
+                status_color = ft.colors.GREY_600
+            elif selected == "1" and sign_area:
+                status_text = "涉及"
+                status_color = ft.colors.GREEN
+            elif sign_area:
+                status_text = "已确认"
                 status_color = ft.colors.GREEN
             else:
                 status_text = "待确认"
                 status_color = ft.colors.ORANGE
 
-            # 签名图片（对齐 uniapp：有 signArea 时展示签名）
             sign_controls: list[ft.Control] = []
             if sign_area:
                 sign_src = (
@@ -503,9 +842,8 @@ async def build_ticket_detail_page(
                         ft.Text(f"签字时间：{sign_time}", size=11, color=ft.colors.GREY_500)
                     )
 
-            def _make_measure_click(item_data):
+            def _make_measure_click(item_data, last_flag):
                 async def _click(e):
-                    # 对齐 uniapp：非当前步骤统一提示
                     if not can_edit:
                         page.snack_bar = ft.SnackBar(ft.Text("已提交的流程不可再修改"), open=True)
                         await page.update_async()
@@ -514,7 +852,8 @@ async def build_ticket_detail_page(
                         page.snack_bar = ft.SnackBar(ft.Text("暂无操作权限"), open=True)
                         await page.update_async()
                         return
-                    await _go_measure_sign(item_data)
+                    sign_mode = "assessment_other" if last_flag else "assessment"
+                    await _go_measure_sign(item_data, sign_mode)
                 return _click
 
             rows.append(
@@ -538,45 +877,114 @@ async def build_ticket_detail_page(
                     bgcolor=ft.colors.GREY_50,
                     border_radius=8,
                     margin=ft.margin.only(bottom=4),
-                    on_click=_make_measure_click(m),
+                    on_click=_make_measure_click(m, is_last),
                     ink=can_edit,
                 )
             )
 
-        # 作业人签字区域（对齐 uniapp）
+        # 作业人签字区域
         rows.append(ft.Text("作业人签字", size=14, weight=ft.FontWeight.BOLD))
-        if zyr_sign_area:
-            zyr_src = (
-                zyr_sign_area if zyr_sign_area.startswith("http")
-                else f"{app_state.host}/jeecg-boot/sys/common/static/{zyr_sign_area}"
+
+        async def _on_zyr_sign(path: str):
+            if not zyr_permissions:
+                page.snack_bar = ft.SnackBar(ft.Text("您没有权限签字"), open=True)
+                await page.update_async()
+                return
+            zyr_sign_area_state[0] = path
+
+        zyr_sign_widget = SignPad(
+            page,
+            on_success=_on_zyr_sign,
+            sign_image=zyr_sign_area_init,
+            disabled=not can_edit or not zyr_permissions,
+            width=320, height=140,
+        )
+        rows.append(
+            ft.Container(
+                content=zyr_sign_widget,
+                padding=12, bgcolor=ft.colors.WHITE,
+                border_radius=8, margin=ft.margin.only(bottom=8),
             )
-            rows.append(
-                ft.Container(
-                    content=ft.Image(src=zyr_src, height=80, fit=ft.ImageFit.CONTAIN),
-                    padding=12,
-                    bgcolor=ft.colors.WHITE,
-                    border_radius=8,
-                    margin=ft.margin.only(bottom=8),
-                    alignment=ft.alignment.center_left,
+        )
+
+        # 保存/提交（sign=2 保存，sign=1 提交）
+        async def _save_or_submit(sign_value: int):
+            if not can_edit:
+                page.snack_bar = ft.SnackBar(ft.Text("已提交的流程不可再修改"), open=True)
+                await page.update_async()
+                return
+            whbs_str = ",".join(selected_whbs_values)
+            if not whbs_str:
+                page.snack_bar = ft.SnackBar(ft.Text("请选择作业危险辨识!"), open=True)
+                await page.update_async()
+                return
+            if sign_value == 1:
+                # 提交校验：作业人签字 + 所有措施已确认
+                if not zyr_sign_area_state[0]:
+                    page.snack_bar = ft.SnackBar(ft.Text("请作业人进行签字!"), open=True)
+                    await page.update_async()
+                    return
+                for m in measure_items:
+                    aqcs = str(m.get("aqcs", ""))
+                    sel = str(m.get("selected", ""))
+                    sig = m.get("signArea", "")
+                    is_other = "其他安全措施" in aqcs
+                    if is_other:
+                        if sel != "2" and not sig:
+                            page.snack_bar = ft.SnackBar(ft.Text("请确认所有的安全措施!"), open=True)
+                            await page.update_async()
+                            return
+                    else:
+                        if not sig:
+                            page.snack_bar = ft.SnackBar(ft.Text("请确认所有的安全措施!"), open=True)
+                            await page.update_async()
+                            return
+
+            params = {
+                "id": ticket_id,
+                "measuresList": measure_items,
+                "sign": sign_value,
+                "whbs": whbs_str,
+                "zyrSignArea": zyr_sign_area_state[0],
+            }
+            try:
+                if sign_value == 1:
+                    await svc.submit_assessment(config.api_prefix, params)
+                else:
+                    await svc.save_assessment(config.api_prefix, params)
+                page.snack_bar = ft.SnackBar(
+                    ft.Text("提交成功" if sign_value == 1 else "保存成功"), open=True,
                 )
-            )
-        else:
+                await _load_detail()
+            except Exception as ex:
+                page.snack_bar = ft.SnackBar(ft.Text(f"失败：{ex}"), open=True)
+                await page.update_async()
+
+        if can_edit and (permissions or zyr_permissions):
             rows.append(
-                ft.Container(
-                    content=ft.Text("作业人未签字", size=12, color=ft.colors.GREY_500),
-                    padding=12,
-                    bgcolor=ft.colors.WHITE,
-                    border_radius=8,
-                    margin=ft.margin.only(bottom=8),
+                ft.Row(
+                    controls=[
+                        ft.ElevatedButton(
+                            "保存",
+                            on_click=lambda e: page.run_task(_save_or_submit, 2),
+                            bgcolor=ft.colors.ORANGE, color=ft.colors.WHITE, expand=True,
+                        ),
+                        ft.ElevatedButton(
+                            "提交",
+                            on_click=lambda e: page.run_task(_save_or_submit, 1),
+                            bgcolor=ft.colors.BLUE, color=ft.colors.WHITE, expand=True,
+                        ),
+                    ],
+                    spacing=8,
                 )
             )
 
         return ft.ListView(controls=rows, expand=True)
 
-    async def _go_measure_sign(item: dict):
+    async def _go_measure_sign(item: dict, sign_mode: str = "assessment"):
         """跳转安全措施签名页"""
         import json
-        page.go(f"/ticket/sign?mode=assessment&info={json.dumps(item)}&type={type_value}")
+        page.go(f"/ticket/sign?mode={sign_mode}&info={json.dumps(item)}&type={type_value}")
 
     # --- 安全交底 ---
     async def _build_clarification_section() -> ft.Control:
@@ -729,48 +1137,64 @@ async def build_ticket_detail_page(
 
         # 作业状态显示 + 控制按钮
         work_status = str(base_info.get("status", ""))
-        status_map = {"5": "暂停", "2": "作业中", "3": "已完成"}
+        status_map = {"5": "暂停", "2": "作业中", "3": "已完成", "4": "已作废"}
         status_text = status_map.get(work_status, "未开始")
         start_time = base_info.get("startTime", "") or ""
-        end_time = base_info.get("dhEndTime", "") or ""
+        end_time = base_info.get("dhEndTime", "") or base_info.get("endTime", "") or ""
 
         rows.append(ft.Divider())
         rows.append(ft.Text(f"作业状态：{status_text}", size=15, weight=ft.FontWeight.BOLD))
         rows.append(ft.Text(f"作业开始时间：{start_time or '--'}", size=13))
         rows.append(ft.Text(f"作业结束时间：{end_time or '--'}", size=13))
 
-        # 作业控制按钮
+        # 权限检查（1=有权限，2=无权限）
         try:
-            can_begin = await svc.check_begin_btn(config.api_prefix, ticket_id, username)
+            begin_res = await svc.check_begin_btn(config.api_prefix, ticket_id, username)
+            check_status = str(begin_res) if begin_res is not None else "2"
         except Exception:
-            can_begin = None
+            check_status = "2"
+        has_op_permission = check_status == "1"
+
+        def _precheck_op() -> str | None:
+            """返回阻止操作的提示，无阻止返回 None"""
+            if not has_op_permission:
+                return "您无权限操作"
+            if not approve_all_done:
+                return "需要所有人都审批通过,才可操作"
+            if work_status == "3":
+                return "作业票已完成"
+            if work_status == "4":
+                return "作业票已作废"
+            return None
+
+        async def _call_op(coro_factory, ok_msg: str):
+            msg = _precheck_op()
+            if msg:
+                page.snack_bar = ft.SnackBar(ft.Text(msg), open=True)
+                await page.update_async()
+                return
+            try:
+                await coro_factory()
+                page.snack_bar = ft.SnackBar(ft.Text(ok_msg), open=True)
+                await _load_detail()
+            except Exception as ex:
+                page.snack_bar = ft.SnackBar(ft.Text(f"失败：{ex}"), open=True)
+                await page.update_async()
 
         async def _begin_work(e):
-            try:
-                await svc.begin_ticket(config.api_prefix, ticket_id)
-                page.snack_bar = ft.SnackBar(ft.Text("操作成功"), open=True)
-                await _load_detail()
-            except Exception as ex:
-                page.snack_bar = ft.SnackBar(ft.Text(f"失败：{ex}"), open=True)
-                await page.update_async()
+            await _call_op(
+                lambda: svc.begin_ticket(config.api_prefix, ticket_id), "操作成功",
+            )
 
         async def _pause_work(e):
-            try:
-                await svc.pause_ticket(config.api_prefix, ticket_id)
-                page.snack_bar = ft.SnackBar(ft.Text("操作成功"), open=True)
-                await _load_detail()
-            except Exception as ex:
-                page.snack_bar = ft.SnackBar(ft.Text(f"失败：{ex}"), open=True)
-                await page.update_async()
+            await _call_op(
+                lambda: svc.pause_ticket(config.api_prefix, ticket_id), "操作成功",
+            )
 
         async def _complete_work(e):
-            try:
-                await svc.complete_ticket(config.api_prefix, ticket_id)
-                page.snack_bar = ft.SnackBar(ft.Text("操作成功"), open=True)
-                await _load_detail()
-            except Exception as ex:
-                page.snack_bar = ft.SnackBar(ft.Text(f"失败：{ex}"), open=True)
-                await page.update_async()
+            await _call_op(
+                lambda: svc.complete_ticket(config.api_prefix, ticket_id), "操作成功",
+            )
 
         rows.append(
             ft.Row(
