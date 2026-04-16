@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import calendar
 import datetime
 import json as _json
+import traceback
 from typing import Any
 
 import flet as ft
@@ -14,6 +16,9 @@ from pages.ticket.config import (
 )
 from services import ticket_service as svc
 from utils.app_state import app_state
+
+# 默认坐标（厂区中心）— 与 uniapp 原版的兜底值一致
+DEFAULT_COORD = {"lng": 120.0, "lat": 30.0}
 
 
 async def build_ticket_add_page(
@@ -72,8 +77,11 @@ async def build_ticket_add_page(
     form_column = ft.Column(spacing=0, scroll=ft.ScrollMode.AUTO, expand=True)
     field_controls: dict[str, ft.Container] = {}
 
-    # GPS 坐标状态
-    gps_coords: dict[str, Any] = {"lng": 0.0, "lat": 0.0, "got": False}
+    # 坐标输入状态（用户可编辑的经纬度）
+    coord_state: dict[str, str] = {
+        "lng": str(DEFAULT_COORD["lng"]),
+        "lat": str(DEFAULT_COORD["lat"]),
+    }
 
     # --- 辅助：扁平化部门树 ---
     def _flatten_departs(tree: dict, result: list):
@@ -200,11 +208,24 @@ async def build_ticket_add_page(
                 for key, val in data.items():
                     if val:
                         form_data[key] = val
+                # 从坐标字段反解经纬度回填到输入框
+                coord_field = config.coord_field or "zb"
+                raw = data.get(coord_field)
+                if raw:
+                    try:
+                        zb = _json.loads(raw) if isinstance(raw, str) else raw
+                        loc = (zb.get("locations") or [{}])[0]
+                        if loc.get("lng") is not None:
+                            coord_state["lng"] = str(loc["lng"])
+                        if loc.get("lat") is not None:
+                            coord_state["lat"] = str(loc["lat"])
+                    except (ValueError, TypeError, AttributeError):
+                        pass
                 # 编辑模式：同步加载动态数据源
                 await _reload_people_zss()
                 await _reload_qttsywbhs()
         except Exception:
-            pass
+            traceback.print_exc()
 
     # --- 字段联动：选中确认后触发 ---
     async def _on_field_change(field_key: str):
@@ -277,15 +298,13 @@ async def build_ticket_add_page(
 
         async def _confirm(e):
             form_data[field_key] = ",".join(sorted(selected))
-            dlg.open = False
-            await page.update_async()
+            page.close(dlg)
             _refresh_field_display(field_key)
             await _on_field_change(field_key)
             await page.update_async()
 
         async def _cancel(e):
-            dlg.open = False
-            await page.update_async()
+            page.close(dlg)
 
         async def _clear(e):
             selected.clear()
@@ -317,9 +336,7 @@ async def build_ticket_add_page(
                 ft.ElevatedButton("确定", on_click=_confirm),
             ],
         )
-        page.dialog = dlg
-        dlg.open = True
-        await page.update_async()
+        page.open(dlg)
 
     # --- 单选弹窗（带搜索） ---
     async def _show_single_select(field_key: str, source_key: str, title: str):
@@ -386,15 +403,13 @@ async def build_ticket_add_page(
 
         async def _confirm(e):
             form_data[field_key] = state["val"]
-            dlg.open = False
-            await page.update_async()
+            page.close(dlg)
             _refresh_field_display(field_key)
             await _on_field_change(field_key)
             await page.update_async()
 
         async def _cancel(e):
-            dlg.open = False
-            await page.update_async()
+            page.close(dlg)
 
         dlg = ft.AlertDialog(
             modal=True,
@@ -420,9 +435,7 @@ async def build_ticket_add_page(
                 ft.ElevatedButton("确定", on_click=_confirm),
             ],
         )
-        page.dialog = dlg
-        dlg.open = True
-        await page.update_async()
+        page.open(dlg)
 
     # --- 中文日期时间选择（年/月/日/时/分/秒） ---
     async def _show_datetime_picker(field_key: str):
@@ -449,17 +462,35 @@ async def build_ticket_add_page(
 
         years = [str(y) for y in range(now.year - 5, now.year + 10)]
         months = [f"{m:02d}" for m in range(1, 13)]
-        days = [f"{d:02d}" for d in range(1, 32)]
         hours = [f"{h:02d}" for h in range(0, 24)]
         mins = [f"{m:02d}" for m in range(0, 60)]
         secs = [f"{s:02d}" for s in range(0, 60)]
 
+        def _days_in(year: int, month: int) -> list[str]:
+            return [f"{d:02d}" for d in range(1, calendar.monthrange(year, month)[1] + 1)]
+
         year_dd = _dd(years, str(dt.year), 90)
         month_dd = _dd(months, f"{dt.month:02d}", 70)
-        day_dd = _dd(days, f"{dt.day:02d}", 70)
+        day_dd = _dd(_days_in(dt.year, dt.month), f"{dt.day:02d}", 70)
         hour_dd = _dd(hours, f"{dt.hour:02d}", 70)
         min_dd = _dd(mins, f"{dt.minute:02d}", 70)
         sec_dd = _dd(secs, f"{dt.second:02d}", 70)
+
+        async def _on_ym_change(e):
+            """年/月变化时重算天数，防止非法日期（如 2 月 31 日）"""
+            try:
+                y = int(year_dd.value or dt.year)
+                m = int(month_dd.value or dt.month)
+            except ValueError:
+                return
+            valid = _days_in(y, m)
+            day_dd.options = [ft.dropdown.Option(v) for v in valid]
+            if day_dd.value not in valid:
+                day_dd.value = valid[-1]
+            await page.update_async()
+
+        year_dd.on_change = _on_ym_change
+        month_dd.on_change = _on_ym_change
 
         def _label(txt: str):
             return ft.Text(txt, size=13, color=ft.colors.GREY_700)
@@ -470,14 +501,12 @@ async def build_ticket_add_page(
                 f"{hour_dd.value}:{min_dd.value}:{sec_dd.value}"
             )
             form_data[field_key] = val
-            dlg.open = False
-            await page.update_async()
+            page.close(dlg)
             _refresh_field_display(field_key)
             await page.update_async()
 
         async def _cancel(e):
-            dlg.open = False
-            await page.update_async()
+            page.close(dlg)
 
         dlg = ft.AlertDialog(
             modal=True,
@@ -496,9 +525,7 @@ async def build_ticket_add_page(
                 ft.ElevatedButton("确定", on_click=_confirm),
             ],
         )
-        page.dialog = dlg
-        dlg.open = True
-        await page.update_async()
+        page.open(dlg)
 
     # --- 刷新字段显示值 ---
     def _refresh_field_display(field_key: str):
@@ -667,38 +694,20 @@ async def build_ticket_add_page(
         # 使用 run_task 避免在 sync 回调中调用 async update 导致死锁
         page.run_task(page.update_async)
 
-    # --- 获取 GPS 坐标 ---
-    async def _fetch_gps():
-        """尝试获取设备 GPS 坐标"""
+    # --- 构造坐标 JSON ---
+    def _build_coord_json() -> str | None:
+        """把用户输入的经纬度打包成后端要求的 JSON；校验失败返回 None"""
         try:
-            gl = ft.Geolocator()
-            page.overlay.append(gl)
-            await page.update_async()
-
-            # 请求权限
-            perm = await gl.request_permission_async()
-            if perm in (
-                ft.GeolocatorPermissionStatus.DENIED,
-                ft.GeolocatorPermissionStatus.DENIED_FOREVER,
-            ):
-                print("[ticket_add] GPS 权限被拒绝，使用默认坐标")
-                return
-
-            pos = await gl.get_current_position_async()
-            if pos and pos.longitude and pos.latitude:
-                gps_coords["lng"] = pos.longitude
-                gps_coords["lat"] = pos.latitude
-                gps_coords["got"] = True
-                print(f"[ticket_add] GPS 获取成功: lng={pos.longitude}, lat={pos.latitude}")
-        except Exception as ex:
-            print(f"[ticket_add] GPS 获取失败: {ex}")
-        finally:
-            # 清理 geolocator overlay
-            try:
-                page.overlay[:] = [o for o in page.overlay if not isinstance(o, ft.Geolocator)]
-                await page.update_async()
-            except Exception:
-                pass
+            lng = float(coord_state["lng"])
+            lat = float(coord_state["lat"])
+        except (TypeError, ValueError):
+            return None
+        org_code = app_state.user_info.get("orgCode") or "A01A01"
+        return _json.dumps({
+            "sysOrgCode": org_code,
+            "height": "2",
+            "locations": [{"lng": lng, "lat": lat}],
+        })
 
     # --- 提交 ---
     async def _submit(save_only: bool = False):
@@ -715,30 +724,22 @@ async def build_ticket_add_page(
                 missing.append(f.label)
 
         if missing:
-            page.snack_bar = ft.SnackBar(
+            page.open(ft.SnackBar(
                 ft.Text(f"请填写：{', '.join(missing[:3])}{'...' if len(missing) > 3 else ''}"),
-                open=True,
-            )
-            await page.update_async()
+            ))
+            return
+
+        # 坐标校验：按后端要求按类型写入对应字段名
+        coord_field = config.coord_field or "zb"
+        coord_json = _build_coord_json()
+        if coord_json is None:
+            page.open(ft.SnackBar(ft.Text("坐标必须为有效数字（经度/纬度）")))
             return
 
         try:
             data = dict(form_data)
-            # 坐标：优先使用 GPS 获取的坐标，否则使用默认厂区中心
-            if not data.get("zb"):
-                if gps_coords["got"]:
-                    coord_data = {
-                        "sysOrgCode": "A01A01",
-                        "height": "2",
-                        "locations": [{"lng": gps_coords["lng"], "lat": gps_coords["lat"]}],
-                    }
-                else:
-                    coord_data = {
-                        "sysOrgCode": "A01A01",
-                        "height": "2",
-                        "locations": [{"lng": 120.0, "lat": 30.0}],
-                    }
-                data["zb"] = _json.dumps(coord_data)
+            if not data.get(coord_field):
+                data[coord_field] = coord_json
 
             if sq_id:
                 data["id"] = sq_id
@@ -746,17 +747,14 @@ async def build_ticket_add_page(
             else:
                 await svc.ticket_add(config.add_path, data)
 
-            page.snack_bar = ft.SnackBar(
-                ft.Text("保存成功" if save_only else "提交成功"), open=True,
-            )
-            await page.update_async()
+            page.open(ft.SnackBar(ft.Text("保存成功" if save_only else "提交成功")))
 
             if not save_only:
                 page.views.pop()
                 await page.update_async()
         except Exception as ex:
-            page.snack_bar = ft.SnackBar(ft.Text(f"提交失败：{ex}"), open=True)
-            await page.update_async()
+            traceback.print_exc()
+            page.open(ft.SnackBar(ft.Text(f"提交失败：{ex}")))
 
     # --- 组装页面 ---
     # 先显示加载中
@@ -802,42 +800,81 @@ async def build_ticket_add_page(
         bgcolor=ft.colors.GREY_100,
     )
 
-    # 后台加载数据 + GPS + 渲染表单
-    async def _deferred_init():
-        # 并行加载数据源和 GPS
-        await asyncio.gather(
-            _load_sources(),
-            _fetch_gps(),
-            return_exceptions=True,
+    # --- 坐标编辑行 ---
+    def _build_coord_row() -> ft.Container:
+        """构建可编辑的坐标输入行（经度 + 纬度）"""
+        def _on_lng(e):
+            coord_state["lng"] = e.control.value or ""
+
+        def _on_lat(e):
+            coord_state["lat"] = e.control.value or ""
+
+        lng_tf = ft.TextField(
+            value=coord_state["lng"],
+            hint_text="经度",
+            on_change=_on_lng,
+            keyboard_type=ft.KeyboardType.NUMBER,
+            border_color=ft.colors.GREY_300,
+            focused_border_color=ft.colors.BLUE,
+            content_padding=ft.padding.symmetric(horizontal=10, vertical=8),
+            text_size=14,
+            expand=True,
         )
-        if sq_id:
-            await _load_existing()
-
-        # 数据加载完成，渲染表单
-        form_column.controls.clear()
-        for f in all_fields:
-            form_column.controls.append(_build_field(f))
-
-        # 坐标提示行（不再显示坐标选择 UI，直接读取 GPS）
-        coord_text = (
-            f"已获取当前位置 ({gps_coords['lng']:.4f}, {gps_coords['lat']:.4f})"
-            if gps_coords["got"]
-            else "未获取到GPS，将使用默认厂区中心坐标"
+        lat_tf = ft.TextField(
+            value=coord_state["lat"],
+            hint_text="纬度",
+            on_change=_on_lat,
+            keyboard_type=ft.KeyboardType.NUMBER,
+            border_color=ft.colors.GREY_300,
+            focused_border_color=ft.colors.BLUE,
+            content_padding=ft.padding.symmetric(horizontal=10, vertical=8),
+            text_size=14,
+            expand=True,
         )
-        coord_color = ft.colors.GREEN if gps_coords["got"] else ft.colors.ORANGE
-
-        form_column.controls.insert(
-            3,
-            ft.Container(
-                content=ft.Row([
-                    ft.Text("*", color=ft.colors.RED, size=14),
-                    ft.Text("坐标", size=14, color=ft.colors.GREY_700, width=140),
-                    ft.Text(coord_text, size=12, color=coord_color, expand=True),
-                ], spacing=2),
-                padding=ft.padding.symmetric(horizontal=16, vertical=8),
-                bgcolor=ft.colors.WHITE,
+        return ft.Container(
+            content=ft.Row(
+                controls=[
+                    ft.Row(
+                        controls=[
+                            ft.Text("*", color=ft.colors.RED, size=14),
+                            ft.Text("坐标", size=14, color=ft.colors.GREY_700, width=140),
+                        ],
+                        spacing=2, tight=True,
+                    ),
+                    ft.Container(
+                        content=ft.Row([lng_tf, lat_tf], spacing=8),
+                        expand=True,
+                    ),
+                ],
+                vertical_alignment=ft.CrossAxisAlignment.START,
             ),
+            padding=ft.padding.symmetric(horizontal=16, vertical=8),
+            bgcolor=ft.colors.WHITE,
         )
+
+    # 后台加载数据 + 渲染表单
+    async def _deferred_init():
+        try:
+            await _load_sources()
+            if sq_id:
+                await _load_existing()
+
+            # 数据加载完成，渲染表单
+            form_column.controls.clear()
+            for f in all_fields:
+                form_column.controls.append(_build_field(f))
+            # 坐标行追加到末尾，不再用魔法下标插入
+            form_column.controls.append(_build_coord_row())
+        except Exception as ex:
+            traceback.print_exc()
+            form_column.controls.clear()
+            form_column.controls.append(
+                ft.Container(
+                    content=ft.Text(f"加载失败：{ex}", color=ft.colors.RED, size=14),
+                    padding=16,
+                    alignment=ft.alignment.center,
+                )
+            )
 
         try:
             await page.update_async()
