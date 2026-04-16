@@ -1082,12 +1082,9 @@ async def build_ticket_detail_page(
         except Exception:
             items = []
 
-        rows: list[ft.Control] = [
-            ft.Text("安全审批(请按顺序审批)", size=14, weight=ft.FontWeight.BOLD),
-        ]
-
-        # API 返回分组结构 [{title, object: [{personText, status, statusText, flag, applyTime, ...}]}]
+        # ── 审批流程卡片 ──
         approve_all_done = True
+        group_widgets: list[ft.Control] = []
         for group in items:
             group_title = group.get("title", "")
             persons = group.get("object", [])
@@ -1099,14 +1096,9 @@ async def build_ticket_detail_page(
                 p_status = p.get("status", "")
                 if str(p_status) != "2":
                     approve_all_done = False
-                p_status_text = p.get("statusText", "待审批" if str(p_status) != "2" else "已审批")
-                p_color = ft.colors.GREEN if str(p_status) == "2" else ft.colors.ORANGE
+                is_done = str(p_status) == "2"
+                p_status_text = p.get("statusText", "已审批" if is_done else "待审批")
                 apply_time = p.get("applyTime", "")
-
-                subtitle_parts = []
-                if str(p_status) == "2" and apply_time:
-                    subtitle_parts.append(apply_time)
-                subtitle_parts.append(p_status_text)
 
                 def _make_approve_click(person_data):
                     async def _click(e):
@@ -1117,37 +1109,89 @@ async def build_ticket_detail_page(
                         await _go_approve_sign(person_data)
                     return _click
 
+                # 每个审批人：左侧图标 + 姓名/时间 + 右侧状态标签
                 person_tiles.append(
-                    ft.ListTile(
-                        title=ft.Text(p.get("personText", ""), size=13),
-                        subtitle=ft.Text(" ".join(subtitle_parts), size=11, color=p_color),
+                    ft.Container(
+                        content=ft.Row(
+                            controls=[
+                                ft.Icon(
+                                    ft.icons.CHECK_CIRCLE if is_done else ft.icons.RADIO_BUTTON_UNCHECKED,
+                                    size=20,
+                                    color=ft.colors.GREEN if is_done else ft.colors.GREY_400,
+                                ),
+                                ft.Column(
+                                    controls=[
+                                        ft.Text(p.get("personText", ""), size=13, weight=ft.FontWeight.W_500),
+                                        ft.Text(
+                                            apply_time if is_done and apply_time else "",
+                                            size=11, color=ft.colors.GREY_500,
+                                            visible=bool(is_done and apply_time),
+                                        ),
+                                    ],
+                                    spacing=2, expand=True,
+                                ),
+                                ft.Container(
+                                    content=ft.Text(p_status_text, size=11, color=ft.colors.WHITE),
+                                    bgcolor=ft.colors.GREEN if is_done else ft.colors.ORANGE,
+                                    border_radius=10,
+                                    padding=ft.padding.symmetric(horizontal=8, vertical=3),
+                                ),
+                            ],
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        ),
                         on_click=_make_approve_click(p),
+                        ink=True,
+                        padding=ft.padding.symmetric(horizontal=12, vertical=8),
                     )
                 )
 
-            rows.append(
+            group_widgets.append(
                 ft.ExpansionTile(
                     title=ft.Text(group_title, size=13, weight=ft.FontWeight.W_500),
                     controls=person_tiles if person_tiles else [
                         ft.Container(content=ft.Text("暂无", size=12, color=ft.colors.GREY_500), padding=12)
                     ],
-                    initially_expanded=len(rows) == 1,
+                    initially_expanded=len(group_widgets) == 0,
+                    tile_padding=ft.padding.symmetric(horizontal=8),
                 )
             )
 
-        # 作业状态显示 + 控制按钮
+        approval_card = ft.Container(
+            content=ft.Column(
+                controls=[
+                    ft.Row(
+                        controls=[
+                            ft.Icon(ft.icons.APPROVAL_OUTLINED, size=18, color=ft.colors.BLUE),
+                            ft.Text("审批流程", size=14, weight=ft.FontWeight.BOLD),
+                            ft.Text("（请按顺序审批）", size=11, color=ft.colors.GREY_500),
+                        ],
+                        spacing=6,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    ),
+                    ft.Divider(height=1, color=ft.colors.GREY_200),
+                    *group_widgets,
+                ],
+                spacing=4,
+            ),
+            padding=12,
+            bgcolor=ft.colors.WHITE,
+            border_radius=8,
+        )
+
+        # ── 作业状态卡片 ──
         work_status = str(base_info.get("status", ""))
-        status_map = {"5": "暂停", "2": "作业中", "3": "已完成", "4": "已作废"}
-        status_text = status_map.get(work_status, "未开始")
+        status_map = {
+            "5": ("暂停", ft.colors.ORANGE, ft.icons.PAUSE_CIRCLE_OUTLINE),
+            "2": ("作业中", ft.colors.BLUE, ft.icons.PLAY_CIRCLE_OUTLINE),
+            "3": ("已完成", ft.colors.GREEN, ft.icons.CHECK_CIRCLE_OUTLINE),
+            "4": ("已作废", ft.colors.RED, ft.icons.CANCEL_OUTLINED),
+        }
+        default_status = ("未开始", ft.colors.GREY_600, ft.icons.SCHEDULE_OUTLINED)
+        status_text, status_color, status_icon = status_map.get(work_status, default_status)
         start_time = base_info.get("startTime", "") or ""
         end_time = base_info.get("dhEndTime", "") or base_info.get("endTime", "") or ""
 
-        rows.append(ft.Divider())
-        rows.append(ft.Text(f"作业状态：{status_text}", size=15, weight=ft.FontWeight.BOLD))
-        rows.append(ft.Text(f"作业开始时间：{start_time or '--'}", size=13))
-        rows.append(ft.Text(f"作业结束时间：{end_time or '--'}", size=13))
-
-        # 权限检查（1=有权限，2=无权限）
+        # 权限检查
         try:
             begin_res = await svc.check_begin_btn(config.api_prefix, ticket_id, username)
             check_status = str(begin_res) if begin_res is not None else "2"
@@ -1156,7 +1200,6 @@ async def build_ticket_detail_page(
         has_op_permission = check_status == "1"
 
         def _precheck_op() -> str | None:
-            """返回阻止操作的提示，无阻止返回 None"""
             if not has_op_permission:
                 return "您无权限操作"
             if not approve_all_done:
@@ -1196,19 +1239,76 @@ async def build_ticket_detail_page(
                 lambda: svc.complete_ticket(config.api_prefix, ticket_id), "操作成功",
             )
 
-        rows.append(
+        # 根据当前状态决定按钮可用性
+        can_begin = work_status not in ("2", "3", "4")
+        can_pause = work_status == "2"
+        can_complete = work_status in ("2", "5")
+
+        op_buttons: list[ft.Control] = []
+        if can_begin:
+            op_buttons.append(
+                ft.ElevatedButton(
+                    "开始作业", icon=ft.icons.PLAY_ARROW,
+                    on_click=_begin_work,
+                    bgcolor=ft.colors.GREEN, color=ft.colors.WHITE, expand=True,
+                )
+            )
+        if can_pause:
+            op_buttons.append(
+                ft.ElevatedButton(
+                    "暂停作业", icon=ft.icons.PAUSE,
+                    on_click=_pause_work,
+                    bgcolor=ft.colors.ORANGE, color=ft.colors.WHITE, expand=True,
+                )
+            )
+        if can_complete:
+            op_buttons.append(
+                ft.ElevatedButton(
+                    "完成作业", icon=ft.icons.STOP,
+                    on_click=_complete_work,
+                    bgcolor=ft.colors.RED, color=ft.colors.WHITE, expand=True,
+                )
+            )
+
+        status_card_controls: list[ft.Control] = [
             ft.Row(
                 controls=[
-                    ft.ElevatedButton("开始作业", on_click=_begin_work, bgcolor=ft.colors.GREEN, color=ft.colors.WHITE),
-                    ft.ElevatedButton("暂停作业", on_click=_pause_work, bgcolor=ft.colors.ORANGE, color=ft.colors.WHITE),
-                    ft.ElevatedButton("完成作业", on_click=_complete_work, bgcolor=ft.colors.RED, color=ft.colors.WHITE),
+                    ft.Icon(status_icon, size=22, color=status_color),
+                    ft.Text("作业状态", size=14, weight=ft.FontWeight.BOLD, expand=True),
+                    ft.Container(
+                        content=ft.Text(status_text, size=12, color=ft.colors.WHITE, weight=ft.FontWeight.BOLD),
+                        bgcolor=status_color,
+                        border_radius=12,
+                        padding=ft.padding.symmetric(horizontal=12, vertical=4),
+                    ),
                 ],
-                spacing=8,
-                wrap=True,
-            )
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+            ft.Divider(height=1, color=ft.colors.GREY_200),
+            ft.Row([
+                ft.Text("开始时间", size=12, color=ft.colors.GREY_600, width=70),
+                ft.Text(start_time or "--", size=12),
+            ]),
+            ft.Row([
+                ft.Text("结束时间", size=12, color=ft.colors.GREY_600, width=70),
+                ft.Text(end_time or "--", size=12),
+            ]),
+        ]
+        if op_buttons:
+            status_card_controls.append(ft.Container(height=4))
+            status_card_controls.append(ft.Row(controls=op_buttons, spacing=8))
+
+        status_card = ft.Container(
+            content=ft.Column(controls=status_card_controls, spacing=6),
+            padding=12,
+            bgcolor=ft.colors.WHITE,
+            border_radius=8,
         )
 
-        return ft.ListView(controls=rows, expand=True)
+        return ft.ListView(
+            controls=[approval_card, ft.Container(height=8), status_card],
+            expand=True,
+        )
 
     async def _go_approve_sign(item: dict):
         import json
@@ -1314,6 +1414,21 @@ async def build_ticket_detail_page(
     async def _go_acceptance_sign(item: dict):
         import json
         page.go(f"/ticket/sign?mode=acceptance&info={json.dumps(item)}&type={type_value}")
+
+    # --- 签名页返回后刷新 ---
+    async def _on_sign_return():
+        """签名提交成功后回调：关闭当前 BottomSheet → 重新加载详情 → 重新打开该步骤面板"""
+        section_idx = current_section_index[0]
+        _close_current_bs()
+        try:
+            await page.update_async()
+        except Exception:
+            pass
+        await _load_detail()
+        if section_idx >= 0:
+            await _show_section(section_idx)
+
+    page._ticket_detail_refresh = _on_sign_return
 
     # --- 组装页面 ---
     title_text = base_info.get("zyzbh", config.name)

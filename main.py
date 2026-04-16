@@ -159,6 +159,22 @@ async def _main_inner(page: ft.Page):
         raw_route = page.route
         route, qparams = _parse_route(raw_route)
 
+        # 清理残留的模态对话框和 overlay，防止页面导航后被遮挡卡死
+        try:
+            if page.dialog and getattr(page.dialog, "open", False):
+                page.dialog.open = False
+        except Exception:
+            pass
+        # 清理非当前页面遗留的 overlay（BottomSheet 等）
+        if page.overlay:
+            for ov in list(page.overlay):
+                try:
+                    if hasattr(ov, "open"):
+                        ov.open = False
+                except Exception:
+                    pass
+            page.overlay.clear()
+
         # 是否保留现有视图栈（保留则支持返回上一页；只有根路由/登录/鉴权失败才清空）
         _root_routes = {"/login", "/login_set", "/home"}
         _preserve_stack = (
@@ -764,6 +780,22 @@ async def _main_inner(page: ft.Page):
 
     # 返回处理
     async def view_pop(e: ft.ViewPopEvent):
+        # 关闭残留的模态对话框，防止返回后页面被遮挡卡死
+        try:
+            if page.dialog and getattr(page.dialog, "open", False):
+                page.dialog.open = False
+        except Exception:
+            pass
+        # 清理 overlay（BottomSheet 等）
+        if page.overlay:
+            for ov in list(page.overlay):
+                try:
+                    if hasattr(ov, "open"):
+                        ov.open = False
+                except Exception:
+                    pass
+            page.overlay.clear()
+
         if len(page.views) > 1:
             page.views.pop()
             # 弹出子页面后若只剩占位视图，重新加载主页内容

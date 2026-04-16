@@ -350,6 +350,10 @@ async def build_ticket_sign_page(
             if len(page.views) > 1:
                 page.views.pop()
                 await page.update_async()
+            # 通知详情页刷新数据并重新打开对应步骤面板
+            refresh = getattr(page, "_ticket_detail_refresh", None)
+            if refresh:
+                await refresh()
 
         except Exception as ex:
             page.snack_bar = ft.SnackBar(ft.Text(f"提交失败：{ex}"), open=True)
@@ -390,6 +394,10 @@ async def build_ticket_sign_page(
                     if len(page.views) > 1:
                         page.views.pop()
                         await page.update_async()
+                    # 通知详情页刷新
+                    refresh = getattr(page, "_ticket_detail_refresh", None)
+                    if refresh:
+                        await refresh()
                 except Exception as ex:
                     page.snack_bar = ft.SnackBar(ft.Text(f"转办失败：{ex}"), open=True)
                     await page.update_async()
