@@ -52,21 +52,36 @@ async def build_ticket_detail_page(
     step_indicator = ft.Row(spacing=4, alignment=ft.MainAxisAlignment.CENTER)
     grid_container = ft.Column(spacing=0)
     camera_column = ft.Column(spacing=4)
-    popup_content = ft.Container(expand=True)
-    popup_visible = [False]
+
+    # 加载状态
+    loading_container = ft.Container(
+        content=ft.Column(
+            [
+                ft.ProgressRing(width=32, height=32),
+                ft.Text("加载中...", size=13, color=ft.colors.GREY_500),
+            ],
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            spacing=12,
+        ),
+        alignment=ft.alignment.center,
+        padding=ft.padding.only(top=100),
+    )
 
     # 当前打开的 BottomSheet + step index，用于提交/新增成功后关闭并重新打开以刷新
     current_bs: list[ft.BottomSheet | None] = [None]
     current_section_index: list[int] = [-1]
 
     def _close_current_bs():
-        """关闭当前 BottomSheet（只设置 open=False，让 Flet 自己收尾，不要主动从 overlay 移除，
-        否则客户端会因为状态不同步而渲染空白）。"""
+        """关闭当前 BottomSheet 并从 overlay 清理"""
         bs = current_bs[0]
         if bs is not None:
             try:
                 bs.open = False
             except Exception:
+                pass
+            try:
+                page.overlay.remove(bs)
+            except (ValueError, Exception):
                 pass
         current_bs[0] = None
         current_section_index[0] = -1
@@ -83,7 +98,10 @@ async def build_ticket_detail_page(
                 current_step[0] = int(step_val) - 1 if step_val else 0
         except Exception as ex:
             page.snack_bar = ft.SnackBar(ft.Text(f"加载失败：{ex}"), open=True)
-            await page.update_async()
+            try:
+                await page.update_async()
+            except Exception:
+                pass
             return
 
         # 加载摄像头
@@ -122,7 +140,13 @@ async def build_ticket_detail_page(
         _build_step_indicator()
         _build_grid()
         _build_camera_list()
-        await page.update_async()
+
+        # 隐藏加载指示器
+        loading_container.visible = False
+        try:
+            await page.update_async()
+        except Exception:
+            pass
 
     # --- 步骤指示器 ---
     def _build_step_indicator():
@@ -252,6 +276,10 @@ async def build_ticket_detail_page(
                 old_bs.open = False
             except Exception:
                 pass
+            try:
+                page.overlay.remove(old_bs)
+            except (ValueError, Exception):
+                pass
             current_bs[0] = None
             current_section_index[0] = -1
             try:
@@ -313,6 +341,10 @@ async def build_ticket_detail_page(
 
     def _close_bs(bs):
         bs.open = False
+        try:
+            page.overlay.remove(bs)
+        except (ValueError, Exception):
+            pass
         page.update()
 
     # --- 基本信息 ---
@@ -606,20 +638,11 @@ async def build_ticket_detail_page(
         async def _submit_detection(e):
             try:
                 await svc.submit_inspection(config.api_prefix, ticket_id)
-                # 先关闭 BottomSheet 并刷掉客户端状态，再 reload —— 避免点击事件仍在
-                # 处理时改动控件树导致 Flet 渲染空白
-                bs = current_bs[0]
-                if bs is not None:
-                    try:
-                        bs.open = False
-                    except Exception:
-                        pass
-                    current_bs[0] = None
-                    current_section_index[0] = -1
-                    try:
-                        await page.update_async()
-                    except Exception:
-                        pass
+                _close_current_bs()
+                try:
+                    await page.update_async()
+                except Exception:
+                    pass
                 page.snack_bar = ft.SnackBar(ft.Text("提交成功"), open=True)
                 await _load_detail()
             except Exception as ex:
@@ -740,6 +763,10 @@ async def build_ticket_detail_page(
             async def _close_bs():
                 if bs_ref:
                     bs_ref[0].open = False
+                    try:
+                        page.overlay.remove(bs_ref[0])
+                    except (ValueError, Exception):
+                        pass
                     await page.update_async()
 
             async def _confirm(_ev):
@@ -759,7 +786,7 @@ async def build_ticket_detail_page(
                         controls=[
                             ft.Row([
                                 ft.Text("选择危害辨识", size=15, weight=ft.FontWeight.BOLD),
-                                ft.IconButton(ft.icons.CLOSE, on_click=lambda e: _close_bs()),
+                                ft.IconButton(ft.icons.CLOSE, on_click=lambda e: page.run_task(_close_bs)),
                             ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                             ft.Divider(height=1),
                             ft.ListView(controls=check_rows, expand=True, spacing=0),
@@ -775,6 +802,7 @@ async def build_ticket_detail_page(
                     height=page.height * 0.7 if page.height else 500,
                 ),
                 open=True,
+                on_dismiss=lambda _e: page.run_task(_close_bs),
             )
             bs_ref.append(bs)
             page.overlay.append(bs)
@@ -1449,6 +1477,8 @@ async def build_ticket_detail_page(
                 padding=ft.padding.only(left=16, top=12, bottom=4),
             ),
             camera_column,
+            # 加载指示器
+            loading_container,
         ],
         spacing=0,
         scroll=ft.ScrollMode.AUTO,
@@ -1467,7 +1497,7 @@ async def build_ticket_detail_page(
         bgcolor=ft.colors.GREY_100,
     )
 
-    # 首次加载
-    await _load_detail()
+    # 后台加载数据（不阻塞视图返回）
+    page.run_task(_load_detail)
 
     return view

@@ -62,7 +62,7 @@ def _responsible_person(item: dict) -> str:
 
 
 async def build_ticket_list_page(page: ft.Page) -> ft.View:
-    """构建作业票列表页"""
+    """构建作业票列表页 — 立即返回视图骨架，数据在后台加载"""
 
     # --- 状态 ---
     current_tab = ["1"]
@@ -75,7 +75,7 @@ async def build_ticket_list_page(page: ft.Page) -> ft.View:
 
     # --- 控件 ---
     list_column = ft.Column(spacing=0)
-    loading_ring = ft.ProgressRing(width=24, height=24, visible=False)
+    loading_ring = ft.ProgressRing(width=24, height=24, visible=True)
     load_more_btn = ft.Container(visible=False)
     empty_widget = ft.Container(
         content=ft.Column(
@@ -239,11 +239,24 @@ async def build_ticket_list_page(page: ft.Page) -> ft.View:
                 current_type_value[0] = val
                 type_dropdown_text.value = txt
                 sheet.open = False
+                try:
+                    page.overlay.remove(sheet)
+                except ValueError:
+                    pass
                 await page.update_async()
                 await _load(reset=True)
             return _select
 
         bs = ft.BottomSheet(content=ft.Container(), open=True)
+
+        def _on_dismiss(_e=None):
+            try:
+                page.overlay.remove(bs)
+            except ValueError:
+                pass
+
+        bs.on_dismiss = _on_dismiss
+
         options = []
         for t in type_options:
             options.append(
@@ -339,8 +352,11 @@ async def build_ticket_list_page(page: ft.Page) -> ft.View:
         bgcolor=ft.colors.GREY_100,
     )
 
-    # 首次加载
-    await _init_types()
-    await _load(reset=True)
+    # 后台加载数据（不阻塞视图返回）
+    async def _deferred_init():
+        await _init_types()
+        await _load(reset=True)
+
+    page.run_task(_deferred_init)
 
     return view
