@@ -17,6 +17,7 @@ from services import ticket_service as svc
 from utils.app_state import app_state
 from utils.geo import get_phone_location
 from utils.logger import get_logger
+from utils.ui import cleanup_overlays, close_and_remove
 
 log = get_logger("ticket_add")
 
@@ -305,13 +306,14 @@ async def build_ticket_add_page(
 
         async def _confirm(e):
             form_data[field_key] = ",".join(sorted(selected))
-            page.close(dlg)
+            close_and_remove(page, dlg)
             _refresh_field_display(field_key)
             await _on_field_change(field_key)
             await page.update_async()
 
         async def _cancel(e):
-            page.close(dlg)
+            close_and_remove(page, dlg)
+            await page.update_async()
 
         async def _clear(e):
             selected.clear()
@@ -410,13 +412,14 @@ async def build_ticket_add_page(
 
         async def _confirm(e):
             form_data[field_key] = state["val"]
-            page.close(dlg)
+            close_and_remove(page, dlg)
             _refresh_field_display(field_key)
             await _on_field_change(field_key)
             await page.update_async()
 
         async def _cancel(e):
-            page.close(dlg)
+            close_and_remove(page, dlg)
+            await page.update_async()
 
         dlg = ft.AlertDialog(
             modal=True,
@@ -508,12 +511,13 @@ async def build_ticket_add_page(
                 f"{hour_dd.value}:{min_dd.value}:{sec_dd.value}"
             )
             form_data[field_key] = val
-            page.close(dlg)
+            close_and_remove(page, dlg)
             _refresh_field_display(field_key)
             await page.update_async()
 
         async def _cancel(e):
-            page.close(dlg)
+            close_and_remove(page, dlg)
+            await page.update_async()
 
         dlg = ft.AlertDialog(
             modal=True,
@@ -769,6 +773,7 @@ async def build_ticket_add_page(
                 invalidator()
 
             if not save_only:
+                cleanup_overlays(page)
                 page.views.pop()
                 await page.update_async()
         except Exception as ex:

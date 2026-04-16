@@ -20,6 +20,7 @@ from services import ticket_service as svc
 from components.sign_pad import SignPad
 from components.image_upload import ImageUpload
 from utils.logger import get_logger
+from utils.ui import cleanup_overlays
 
 log = get_logger("ticket_sign")
 
@@ -297,7 +298,7 @@ async def build_ticket_sign_page(
 
     async def _submit(e):
         if mode in ("assessment", "assessment_other") and not form_data.get("selected"):
-            page.snack_bar = ft.SnackBar(ft.Text("请先确认是否涉及"), open=True)
+            page.open(ft.SnackBar(ft.Text("请先确认是否涉及")))
             await page.update_async()
             return
 
@@ -307,12 +308,12 @@ async def build_ticket_sign_page(
         )
         if not _other_not_involved:
             if not form_data.get("signArea") and not sign_image_path[0]:
-                page.snack_bar = ft.SnackBar(ft.Text("请先签名"), open=True)
+                page.open(ft.SnackBar(ft.Text("请先签名")))
                 await page.update_async()
                 return
 
         if mode == "approve" and not form_data.get("applyStatus"):
-            page.snack_bar = ft.SnackBar(ft.Text("请选择审批结果"), open=True)
+            page.open(ft.SnackBar(ft.Text("请选择审批结果")))
             await page.update_async()
             return
 
@@ -348,9 +349,10 @@ async def build_ticket_sign_page(
                 params["photo"] = form_data.get("photo", "")
                 await svc.sign_ticket(config.api_prefix, params)
 
-            page.snack_bar = ft.SnackBar(ft.Text("提交成功"), open=True)
+            page.open(ft.SnackBar(ft.Text("提交成功")))
             await page.update_async()
             if len(page.views) > 1:
+                cleanup_overlays(page)
                 page.views.pop()
                 await page.update_async()
             # 通知详情页刷新数据并重新打开对应步骤面板
@@ -359,7 +361,7 @@ async def build_ticket_sign_page(
                 await refresh()
 
         except Exception as ex:
-            page.snack_bar = ft.SnackBar(ft.Text(f"提交失败：{ex}"), open=True)
+            page.open(ft.SnackBar(ft.Text(f"提交失败：{ex}")))
             await page.update_async()
 
     # 转办按钮（仅审批模式）
@@ -370,12 +372,12 @@ async def build_ticket_sign_page(
                 people = await svc.get_people_list_for_forward(config.api_prefix)
                 people_list = people if isinstance(people, list) else []
             except Exception as ex:
-                page.snack_bar = ft.SnackBar(ft.Text(f"加载人员失败：{ex}"), open=True)
+                page.open(ft.SnackBar(ft.Text(f"加载人员失败：{ex}")))
                 await page.update_async()
                 return
 
             if not people_list:
-                page.snack_bar = ft.SnackBar(ft.Text("暂无可转办人员"), open=True)
+                page.open(ft.SnackBar(ft.Text("暂无可转办人员")))
                 await page.update_async()
                 return
 
@@ -392,9 +394,10 @@ async def build_ticket_sign_page(
                     )
                     if dlg_ref:
                         dlg_ref[0].open = False
-                    page.snack_bar = ft.SnackBar(ft.Text("转办成功"), open=True)
+                    page.open(ft.SnackBar(ft.Text("转办成功")))
                     await page.update_async()
                     if len(page.views) > 1:
+                        cleanup_overlays(page)
                         page.views.pop()
                         await page.update_async()
                     # 通知详情页刷新
@@ -402,7 +405,7 @@ async def build_ticket_sign_page(
                     if refresh:
                         await refresh()
                 except Exception as ex:
-                    page.snack_bar = ft.SnackBar(ft.Text(f"转办失败：{ex}"), open=True)
+                    page.open(ft.SnackBar(ft.Text(f"转办失败：{ex}")))
                     await page.update_async()
 
             def _make_forward_click(pid):

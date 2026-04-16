@@ -156,7 +156,7 @@ async def build_ticket_list_page(page: ft.Page) -> ft.View:
             print(f"[ticket_list] 加载失败：{ex}")
             empty_widget.visible = len(items_data) == 0
             try:
-                page.snack_bar = ft.SnackBar(ft.Text(f"加载失败：{ex}"), open=True)
+                page.open(ft.SnackBar(ft.Text(f"加载失败：{ex}")))
             except Exception:
                 log.debug("swallowed exception", exc_info=True)
 

@@ -187,7 +187,7 @@ class SignPad(ft.Container):
         return buf.getvalue()
 
     def _toast(self, msg: str):
-        self._page.snack_bar = ft.SnackBar(ft.Text(msg), open=True)
+        self._page.open(ft.SnackBar(ft.Text(msg)))
         self._page.update()
 
     async def _on_confirm(self, e):

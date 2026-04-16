@@ -15,12 +15,32 @@ log = get_logger("geo")
 _GEO_ATTR = "_shared_geolocator"
 
 
-def _acquire_geolocator(page: ft.Page) -> ft.Geolocator:
+def _is_mobile(page: ft.Page) -> bool:
+    """只有手机端（Android / iOS）才创建 Geolocator；
+    其他平台 Flutter 客户端不识别该控件，会渲染成 "Unknown control: geolocator"。
+    """
+    try:
+        platform = getattr(page, "platform", None)
+        if platform is None:
+            return False
+        name = str(platform).lower()
+        return "android" in name or "ios" in name
+    except Exception:
+        return False
+
+
+def _acquire_geolocator(page: ft.Page) -> Optional[ft.Geolocator]:
+    if not _is_mobile(page):
+        return None
     geo: Optional[ft.Geolocator] = getattr(page, _GEO_ATTR, None)
     if geo is None:
-        geo = ft.Geolocator()
-        page.overlay.append(geo)
-        setattr(page, _GEO_ATTR, geo)
+        try:
+            geo = ft.Geolocator()
+            page.overlay.append(geo)
+            setattr(page, _GEO_ATTR, geo)
+        except Exception:
+            log.exception("create Geolocator failed")
+            return None
     return geo
 
 
@@ -33,6 +53,8 @@ async def get_phone_location(
     `timeout` 是本次调用的总耗时预算（权限 + 定位合起来）。
     """
     geo = _acquire_geolocator(page)
+    if geo is None:
+        return None
 
     async def _ensure_permission() -> bool:
         try:

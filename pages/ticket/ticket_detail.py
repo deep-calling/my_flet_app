@@ -100,7 +100,7 @@ async def build_ticket_detail_page(
                 step_val = base_info.get("step", 1)
                 current_step[0] = int(step_val) - 1 if step_val else 0
         except Exception as ex:
-            page.snack_bar = ft.SnackBar(ft.Text(f"加载失败：{ex}"), open=True)
+            page.open(ft.SnackBar(ft.Text(f"加载失败：{ex}")))
             try:
                 await page.update_async()
             except Exception:
@@ -196,7 +196,7 @@ async def build_ticket_detail_page(
                     async def _click(e):
                         # 不能跳到未到达的步骤
                         if idx - 1 > current_step[0] and idx > 1:
-                            page.snack_bar = ft.SnackBar(ft.Text("请先完成前序步骤"), open=True)
+                            page.open(ft.SnackBar(ft.Text("请先完成前序步骤")))
                             await page.update_async()
                             return
                         await _show_section(idx)
@@ -525,11 +525,11 @@ async def build_ticket_detail_page(
 
         async def _confirm(_e):
             if not form["fxdmc"]:
-                page.snack_bar = ft.SnackBar(ft.Text("请输入分析点名称"), open=True)
+                page.open(ft.SnackBar(ft.Text("请输入分析点名称")))
                 await page.update_async()
                 return
             if not form["fxrName"]:
-                page.snack_bar = ft.SnackBar(ft.Text("请输入分析人"), open=True)
+                page.open(ft.SnackBar(ft.Text("请输入分析人")))
                 await page.update_async()
                 return
 
@@ -544,10 +544,10 @@ async def build_ticket_detail_page(
                     await svc.add_inspection(config.api_prefix, payload)
                     msg = "添加成功"
                 await _close()
-                page.snack_bar = ft.SnackBar(ft.Text(msg), open=True)
+                page.open(ft.SnackBar(ft.Text(msg)))
                 await _load_detail()
             except Exception as ex:
-                page.snack_bar = ft.SnackBar(ft.Text(f"失败：{ex}"), open=True)
+                page.open(ft.SnackBar(ft.Text(f"失败：{ex}")))
                 await page.update_async()
 
         body_col = ft.Column(
@@ -646,12 +646,12 @@ async def build_ticket_detail_page(
                     await page.update_async()
                 except Exception:
                     log.debug("swallowed exception", exc_info=True)
-                page.snack_bar = ft.SnackBar(ft.Text("提交成功"), open=True)
+                page.open(ft.SnackBar(ft.Text("提交成功")))
                 await _load_detail()
             except Exception as ex:
                 import traceback
                 traceback.print_exc()
-                page.snack_bar = ft.SnackBar(ft.Text(f"失败：{ex}"), open=True)
+                page.open(ft.SnackBar(ft.Text(f"失败：{ex}")))
                 try:
                     await page.update_async()
                 except Exception:
@@ -733,11 +733,11 @@ async def build_ticket_detail_page(
 
         async def _open_harm_picker(_e):
             if not permissions:
-                page.snack_bar = ft.SnackBar(ft.Text("暂无操作权限"), open=True)
+                page.open(ft.SnackBar(ft.Text("暂无操作权限")))
                 await page.update_async()
                 return
             if not harm_list:
-                page.snack_bar = ft.SnackBar(ft.Text("暂无可选危害辨识项"), open=True)
+                page.open(ft.SnackBar(ft.Text("暂无可选危害辨识项")))
                 await page.update_async()
                 return
 
@@ -876,11 +876,11 @@ async def build_ticket_detail_page(
             def _make_measure_click(item_data, last_flag):
                 async def _click(e):
                     if not can_edit:
-                        page.snack_bar = ft.SnackBar(ft.Text("已提交的流程不可再修改"), open=True)
+                        page.open(ft.SnackBar(ft.Text("已提交的流程不可再修改")))
                         await page.update_async()
                         return
                     if not permissions:
-                        page.snack_bar = ft.SnackBar(ft.Text("暂无操作权限"), open=True)
+                        page.open(ft.SnackBar(ft.Text("暂无操作权限")))
                         await page.update_async()
                         return
                     sign_mode = "assessment_other" if last_flag else "assessment"
@@ -918,7 +918,7 @@ async def build_ticket_detail_page(
 
         async def _on_zyr_sign(path: str):
             if not zyr_permissions:
-                page.snack_bar = ft.SnackBar(ft.Text("您没有权限签字"), open=True)
+                page.open(ft.SnackBar(ft.Text("您没有权限签字")))
                 await page.update_async()
                 return
             zyr_sign_area_state[0] = path
@@ -941,18 +941,18 @@ async def build_ticket_detail_page(
         # 保存/提交（sign=2 保存，sign=1 提交）
         async def _save_or_submit(sign_value: int):
             if not can_edit:
-                page.snack_bar = ft.SnackBar(ft.Text("已提交的流程不可再修改"), open=True)
+                page.open(ft.SnackBar(ft.Text("已提交的流程不可再修改")))
                 await page.update_async()
                 return
             whbs_str = ",".join(selected_whbs_values)
             if not whbs_str:
-                page.snack_bar = ft.SnackBar(ft.Text("请选择作业危险辨识!"), open=True)
+                page.open(ft.SnackBar(ft.Text("请选择作业危险辨识!")))
                 await page.update_async()
                 return
             if sign_value == 1:
                 # 提交校验：作业人签字 + 所有措施已确认
                 if not zyr_sign_area_state[0]:
-                    page.snack_bar = ft.SnackBar(ft.Text("请作业人进行签字!"), open=True)
+                    page.open(ft.SnackBar(ft.Text("请作业人进行签字!")))
                     await page.update_async()
                     return
                 for m in measure_items:
@@ -962,12 +962,12 @@ async def build_ticket_detail_page(
                     is_other = "其他安全措施" in aqcs
                     if is_other:
                         if sel != "2" and not sig:
-                            page.snack_bar = ft.SnackBar(ft.Text("请确认所有的安全措施!"), open=True)
+                            page.open(ft.SnackBar(ft.Text("请确认所有的安全措施!")))
                             await page.update_async()
                             return
                     else:
                         if not sig:
-                            page.snack_bar = ft.SnackBar(ft.Text("请确认所有的安全措施!"), open=True)
+                            page.open(ft.SnackBar(ft.Text("请确认所有的安全措施!")))
                             await page.update_async()
                             return
 
@@ -983,12 +983,10 @@ async def build_ticket_detail_page(
                     await svc.submit_assessment(config.api_prefix, params)
                 else:
                     await svc.save_assessment(config.api_prefix, params)
-                page.snack_bar = ft.SnackBar(
-                    ft.Text("提交成功" if sign_value == 1 else "保存成功"), open=True,
-                )
+                page.open(ft.SnackBar(ft.Text("提交成功" if sign_value == 1 else "保存成功")))
                 await _load_detail()
             except Exception as ex:
-                page.snack_bar = ft.SnackBar(ft.Text(f"失败：{ex}"), open=True)
+                page.open(ft.SnackBar(ft.Text(f"失败：{ex}")))
                 await page.update_async()
 
         if can_edit and (permissions or zyr_permissions):
@@ -1053,7 +1051,7 @@ async def build_ticket_detail_page(
                     async def _click(e):
                         # 对齐 uniapp：无 flag → 权限提示；有 flag → 进入详情（已签名则只读）
                         if not person_data.get("flag"):
-                            page.snack_bar = ft.SnackBar(ft.Text("您未有权限！"), open=True)
+                            page.open(ft.SnackBar(ft.Text("您未有权限！")))
                             await page.update_async()
                             return
                         await _go_confess_sign(person_data)
@@ -1081,10 +1079,10 @@ async def build_ticket_detail_page(
             async def _submit_confess(e):
                 try:
                     await svc.confess_submit(config.api_prefix, ticket_id)
-                    page.snack_bar = ft.SnackBar(ft.Text("提交成功"), open=True)
+                    page.open(ft.SnackBar(ft.Text("提交成功")))
                     await _load_detail()
                 except Exception as ex:
-                    page.snack_bar = ft.SnackBar(ft.Text(f"失败：{ex}"), open=True)
+                    page.open(ft.SnackBar(ft.Text(f"失败：{ex}")))
                     await page.update_async()
 
             rows.append(
@@ -1134,7 +1132,7 @@ async def build_ticket_detail_page(
                 def _make_approve_click(person_data):
                     async def _click(e):
                         if not person_data.get("flag"):
-                            page.snack_bar = ft.SnackBar(ft.Text("您未有权限！"), open=True)
+                            page.open(ft.SnackBar(ft.Text("您未有权限！")))
                             await page.update_async()
                             return
                         await _go_approve_sign(person_data)
@@ -1244,15 +1242,15 @@ async def build_ticket_detail_page(
         async def _call_op(coro_factory, ok_msg: str):
             msg = _precheck_op()
             if msg:
-                page.snack_bar = ft.SnackBar(ft.Text(msg), open=True)
+                page.open(ft.SnackBar(ft.Text(msg)))
                 await page.update_async()
                 return
             try:
                 await coro_factory()
-                page.snack_bar = ft.SnackBar(ft.Text(ok_msg), open=True)
+                page.open(ft.SnackBar(ft.Text(ok_msg)))
                 await _load_detail()
             except Exception as ex:
-                page.snack_bar = ft.SnackBar(ft.Text(f"失败：{ex}"), open=True)
+                page.open(ft.SnackBar(ft.Text(f"失败：{ex}")))
                 await page.update_async()
 
         async def _begin_work(e):
@@ -1397,7 +1395,7 @@ async def build_ticket_detail_page(
                 def _make_acceptance_click(person_data):
                     async def _click(e):
                         if not person_data.get("flag"):
-                            page.snack_bar = ft.SnackBar(ft.Text("您未有权限！"), open=True)
+                            page.open(ft.SnackBar(ft.Text("您未有权限！")))
                             await page.update_async()
                             return
                         await _go_acceptance_sign(person_data)
@@ -1425,10 +1423,10 @@ async def build_ticket_detail_page(
             async def _submit_acceptance(e):
                 try:
                     await svc.acceptance_submit(config.api_prefix, ticket_id)
-                    page.snack_bar = ft.SnackBar(ft.Text("验收提交成功"), open=True)
+                    page.open(ft.SnackBar(ft.Text("验收提交成功")))
                     await _load_detail()
                 except Exception as ex:
-                    page.snack_bar = ft.SnackBar(ft.Text(f"失败：{ex}"), open=True)
+                    page.open(ft.SnackBar(ft.Text(f"失败：{ex}")))
                     await page.update_async()
 
             rows.append(

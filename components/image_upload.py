@@ -183,7 +183,7 @@ class ImageUpload(ft.Container):
             self._images_row.controls.append(self._build_add_button())
 
     def _toast(self, msg: str):
-        self._page.snack_bar = ft.SnackBar(ft.Text(msg), open=True)
+        self._page.open(ft.SnackBar(ft.Text(msg)))
         self._page.update()
 
     async def _on_file_picked(self, e: ft.FilePickerResultEvent):

@@ -11,6 +11,7 @@ from components.scroll_helper import apply_no_bounce
 
 from services import ticket_service as svc
 from utils.logger import get_logger
+from utils.ui import cleanup_overlays, close_and_remove
 
 log = get_logger("ticket_apply")
 
@@ -120,7 +121,7 @@ async def build_ticket_apply_page(page: ft.Page) -> ft.View:
             empty_widget.visible = len(items_data) == 0
 
         except Exception as ex:
-            page.snack_bar = ft.SnackBar(ft.Text(f"加载失败：{ex}"), open=True)
+            page.open(ft.SnackBar(ft.Text(f"加载失败：{ex}")))
 
         is_loading[0] = False
         loading_ring.visible = False
@@ -197,19 +198,19 @@ async def build_ticket_apply_page(page: ft.Page) -> ft.View:
     async def _change_status(record_id: str):
         try:
             await svc.zysq_status(record_id)
-            page.snack_bar = ft.SnackBar(ft.Text("操作成功"), open=True)
+            page.open(ft.SnackBar(ft.Text("操作成功")))
             await _load(reset=True)
         except Exception as ex:
-            page.snack_bar = ft.SnackBar(ft.Text(f"操作失败：{ex}"), open=True)
+            page.open(ft.SnackBar(ft.Text(f"操作失败：{ex}")))
             await page.update_async()
 
     async def _reject(record_id: str):
         try:
             await svc.zysq_status_no(record_id)
-            page.snack_bar = ft.SnackBar(ft.Text("已驳回"), open=True)
+            page.open(ft.SnackBar(ft.Text("已驳回")))
             await _load(reset=True)
         except Exception as ex:
-            page.snack_bar = ft.SnackBar(ft.Text(f"操作失败：{ex}"), open=True)
+            page.open(ft.SnackBar(ft.Text(f"操作失败：{ex}")))
             await page.update_async()
 
     async def _delete(record_id: str):
@@ -217,10 +218,10 @@ async def build_ticket_apply_page(page: ft.Page) -> ft.View:
             try:
                 await svc.zysq_delete(record_id)
                 dlg.open = False
-                page.snack_bar = ft.SnackBar(ft.Text("删除成功"), open=True)
+                page.open(ft.SnackBar(ft.Text("删除成功")))
                 await _load(reset=True)
             except Exception as ex:
-                page.snack_bar = ft.SnackBar(ft.Text(f"删除失败：{ex}"), open=True)
+                page.open(ft.SnackBar(ft.Text(f"删除失败：{ex}")))
                 await page.update_async()
 
         async def _cancel(e):
@@ -664,7 +665,7 @@ async def build_ticket_apply_page(page: ft.Page) -> ft.View:
             if not form["zyjssj"]: missing.append("预计作业结束时间")
 
             if missing:
-                page.snack_bar = ft.SnackBar(ft.Text(f"请填写：{', '.join(missing[:3])}{'...' if len(missing) > 3 else ''}"), open=True)
+                page.open(ft.SnackBar(ft.Text(f"请填写：{', '.join(missing[:3])}{'...' if len(missing) > 3 else ''}")))
                 await page.update_async()
                 return
 
@@ -674,15 +675,17 @@ async def build_ticket_apply_page(page: ft.Page) -> ft.View:
                     await svc.zysq_edit(payload)
                 else:
                     await svc.zysq_add(payload)
-                page.snack_bar = ft.SnackBar(ft.Text("操作成功!"), open=True)
+                page.open(ft.SnackBar(ft.Text("操作成功!")))
+                cleanup_overlays(page)
                 page.views.pop()
                 await page.update_async()
                 await _load(reset=True)
             except Exception as ex:
-                page.snack_bar = ft.SnackBar(ft.Text(f"保存失败：{ex}"), open=True)
+                page.open(ft.SnackBar(ft.Text(f"保存失败：{ex}")))
                 await page.update_async()
 
         async def _cancel(e):
+            cleanup_overlays(page)
             page.views.pop()
             await page.update_async()
 
