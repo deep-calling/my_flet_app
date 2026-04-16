@@ -10,6 +10,9 @@ from components.scroll_helper import apply_no_bounce
 
 from services import trouble_service as ts
 from components.status_badge import status_badge
+from utils.logger import get_logger
+
+log = get_logger("record")
 
 
 async def build_record_view(page: ft.Page, module_type: str = "trouble") -> ft.View:
@@ -54,7 +57,7 @@ async def build_record_view(page: ft.Page, module_type: str = "trouble") -> ft.V
                         "value": str(it.get("value", "")),
                     })
         except Exception:
-            pass
+            log.debug("swallowed exception", exc_info=True)
 
     async def _load_data(reset: bool = False):
         if is_loading[0]:

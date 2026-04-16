@@ -13,6 +13,9 @@ from components.form_fields import (
     form_item, text_field, radio_field, dropdown_field, date_field, readonly_field,
 )
 from components.detail_page import detail_section
+from utils.logger import get_logger
+
+log = get_logger("read")
 
 
 # ==================================================================
@@ -263,7 +266,7 @@ async def build_read_add_view(page: ft.Page, ypdw: str = "1") -> ft.View:
         if isinstance(level_result, list):
             level_options = [{"text": i.get("text", ""), "value": str(i.get("value", ""))} for i in level_result]
     except Exception:
-        pass
+        log.debug("swallowed exception", exc_info=True)
 
     try:
         person_result = await ss.get_person_list()
@@ -278,7 +281,7 @@ async def build_read_add_view(page: ft.Page, ypdw: str = "1") -> ft.View:
                 for p in person_result
             ]
     except Exception:
-        pass
+        log.debug("swallowed exception", exc_info=True)
 
     # 表单字段定义
     number_fields = [
@@ -463,7 +466,7 @@ async def build_read_detail_view(
             info = records[0] if records else {}
             bpm_status = str(info.get("bpmStatus", ""))
     except Exception:
-        pass
+        log.debug("swallowed exception", exc_info=True)
 
     # 加载流程步骤
     if record_id and bpm_status != "1":
@@ -495,7 +498,7 @@ async def build_read_detail_view(
                         step_list = his_trans.get("bpmLogStepList", [])
                         steps = [{"name": s.get("taskName", "")} for s in step_list]
         except Exception:
-            pass
+            log.debug("swallowed exception", exc_info=True)
 
     # 构建详情内容
     detail_fields = [

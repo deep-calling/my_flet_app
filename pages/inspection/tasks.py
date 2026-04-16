@@ -13,6 +13,9 @@ from components.detail_page import detail_section
 from components.form_fields import readonly_field, textarea_field
 from components.status_badge import status_badge
 from components.image_upload import ImageUpload
+from utils.logger import get_logger
+
+log = get_logger("tasks")
 
 
 # Tab: (标签名, 接口 status 值)
@@ -295,7 +298,7 @@ async def build_task_detail_view(page: ft.Page, record_id: str) -> ft.View:
                     style=ft.ButtonStyle(color=ft.colors.BLUE),
                 )
         except Exception:
-            pass
+            log.debug("swallowed exception", exc_info=True)
         is_loading[0] = False
 
     async def _on_load_more_points(e):
@@ -760,7 +763,7 @@ async def build_content_view(page: ft.Page, item_data: dict) -> ft.View:
                     style=ft.ButtonStyle(color=ft.colors.BLUE),
                 )
         except Exception:
-            pass
+            log.debug("swallowed exception", exc_info=True)
         is_loading[0] = False
 
     async def _on_load_more(e):

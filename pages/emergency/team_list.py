@@ -6,6 +6,9 @@ import flet as ft
 
 from components.list_page import build_list_page
 from services import emergency_service as es
+from utils.logger import get_logger
+
+log = get_logger("team_list")
 
 
 async def build_team_list_view(page: ft.Page) -> ft.View:
@@ -17,7 +20,7 @@ async def build_team_list_view(page: ft.Page) -> ft.View:
         levels = await es.get_dict_items("ranks_level")
         ranks_level_opts = [{"text": i["text"], "value": str(i["value"])} for i in levels]
     except Exception:
-        pass
+        log.debug("swallowed exception", exc_info=True)
 
     async def _load(page_no: int, page_size: int, filters: dict) -> dict:
         params: dict = {"pageNo": page_no, "pageSize": page_size}

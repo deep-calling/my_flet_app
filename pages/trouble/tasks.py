@@ -16,6 +16,9 @@ from components.form_fields import (
 )
 from components.image_upload import ImageUpload
 from components.status_badge import status_badge
+from utils.logger import get_logger
+
+log = get_logger("tasks")
 
 
 # Tab 配置：(标签名, 状态值)
@@ -230,7 +233,7 @@ async def build_task_detail_view(
             if isinstance(counts, dict):
                 detail.update(counts)
         except Exception:
-            pass
+            log.debug("swallowed exception", exc_info=True)
         return detail
 
     def _build_content(data: dict) -> ft.Control:
@@ -291,7 +294,7 @@ async def build_task_detail_view(
                 {"label": "隐患上报", "on_click": _on_report, "style": "danger"},
             ]
     except Exception:
-        pass
+        log.debug("swallowed exception", exc_info=True)
 
     return await build_detail_page(
         page,
@@ -345,7 +348,7 @@ async def build_check_finish_view(
             for item in options
         ]
     except Exception:
-        pass
+        log.debug("swallowed exception", exc_info=True)
 
     async def _submit(e):
         if not desc_field.value or not desc_field.value.strip():
@@ -586,7 +589,7 @@ async def build_task_item_list_view(
             selected_item[0] = items[0]
             item_btn_text.value = items[0].get("jcxm", "请选择检查项")
     except Exception:
-        pass
+        log.debug("swallowed exception", exc_info=True)
 
     # --- 加载条目 ---
     async def _load_entries(reset: bool = False):

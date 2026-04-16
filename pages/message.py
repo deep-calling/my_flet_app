@@ -6,6 +6,9 @@ import flet as ft
 
 from components.list_page import build_list_page
 from services import record_service as rs
+from utils.logger import get_logger
+
+log = get_logger("message")
 
 
 def _msg_category_text(val) -> str:
@@ -51,7 +54,7 @@ async def build_message_view(page: ft.Page) -> ft.View:
             try:
                 await rs.mark_message_read(item.get("anntId", ""))
             except Exception:
-                pass
+                log.debug("swallowed exception", exc_info=True)
 
         # 弹窗显示消息内容
         content_text = item.get("msgContent", "暂无内容")

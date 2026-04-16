@@ -15,6 +15,9 @@ from utils.app_state import app_state
 from components.form_fields import readonly_field
 from components.sign_pad import SignPad
 from components.image_upload import ImageUpload
+from utils.logger import get_logger
+
+log = get_logger("ticket_detail")
 
 
 # 步骤图标映射
@@ -78,11 +81,11 @@ async def build_ticket_detail_page(
             try:
                 bs.open = False
             except Exception:
-                pass
+                log.debug("swallowed exception", exc_info=True)
             try:
                 page.overlay.remove(bs)
-            except (ValueError, Exception):
-                pass
+            except Exception:
+                log.debug("swallowed exception", exc_info=True)
         current_bs[0] = None
         current_section_index[0] = -1
 
@@ -101,7 +104,7 @@ async def build_ticket_detail_page(
             try:
                 await page.update_async()
             except Exception:
-                pass
+                log.debug("swallowed exception", exc_info=True)
             return
 
         # 加载摄像头
@@ -112,7 +115,7 @@ async def build_ticket_detail_page(
             if isinstance(cam_result, list):
                 camera_list = cam_result
         except Exception:
-            pass
+            log.debug("swallowed exception", exc_info=True)
 
         # 加载证书编号（动火人/监护人），通过证书表 id 换取 zsbh
         for code in ("dhzsbh", "jhrzsbh"):
@@ -146,7 +149,7 @@ async def build_ticket_detail_page(
         try:
             await page.update_async()
         except Exception:
-            pass
+            log.debug("swallowed exception", exc_info=True)
 
     # --- 步骤指示器 ---
     def _build_step_indicator():
@@ -275,17 +278,17 @@ async def build_ticket_detail_page(
             try:
                 old_bs.open = False
             except Exception:
-                pass
+                log.debug("swallowed exception", exc_info=True)
             try:
                 page.overlay.remove(old_bs)
-            except (ValueError, Exception):
-                pass
+            except Exception:
+                log.debug("swallowed exception", exc_info=True)
             current_bs[0] = None
             current_section_index[0] = -1
             try:
                 await page.update_async()
             except Exception:
-                pass
+                log.debug("swallowed exception", exc_info=True)
 
         if index == 0:
             content = _build_info_section()
@@ -307,7 +310,7 @@ async def build_ticket_detail_page(
             try:
                 page.update()
             except Exception:
-                pass
+                log.debug("swallowed exception", exc_info=True)
 
         bs = ft.BottomSheet(
             content=ft.Container(
@@ -343,8 +346,8 @@ async def build_ticket_detail_page(
         bs.open = False
         try:
             page.overlay.remove(bs)
-        except (ValueError, Exception):
-            pass
+        except Exception:
+            log.debug("swallowed exception", exc_info=True)
         page.update()
 
     # --- 基本信息 ---
@@ -642,7 +645,7 @@ async def build_ticket_detail_page(
                 try:
                     await page.update_async()
                 except Exception:
-                    pass
+                    log.debug("swallowed exception", exc_info=True)
                 page.snack_bar = ft.SnackBar(ft.Text("提交成功"), open=True)
                 await _load_detail()
             except Exception as ex:
@@ -652,7 +655,7 @@ async def build_ticket_detail_page(
                 try:
                     await page.update_async()
                 except Exception:
-                    pass
+                    log.debug("swallowed exception", exc_info=True)
 
         async def _add_detection(e):
             await _open_detection_form(None)
@@ -765,8 +768,8 @@ async def build_ticket_detail_page(
                     bs_ref[0].open = False
                     try:
                         page.overlay.remove(bs_ref[0])
-                    except (ValueError, Exception):
-                        pass
+                    except Exception:
+                        log.debug("swallowed exception", exc_info=True)
                     await page.update_async()
 
             async def _confirm(_ev):
@@ -1451,7 +1454,7 @@ async def build_ticket_detail_page(
         try:
             await page.update_async()
         except Exception:
-            pass
+            log.debug("swallowed exception", exc_info=True)
         await _load_detail()
         if section_idx >= 0:
             await _show_section(section_idx)

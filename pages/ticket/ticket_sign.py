@@ -19,6 +19,9 @@ from pages.ticket.config import get_config_by_type_value
 from services import ticket_service as svc
 from components.sign_pad import SignPad
 from components.image_upload import ImageUpload
+from utils.logger import get_logger
+
+log = get_logger("ticket_sign")
 
 
 # 模式标题映射
@@ -210,7 +213,7 @@ async def build_ticket_sign_page(
                     for r in status_result
                 ]
         except Exception:
-            pass
+            log.debug("swallowed exception", exc_info=True)
         if not apply_status_options:
             apply_status_options = [{"text": "同意", "value": "1"}, {"text": "不同意", "value": "2"}]
 

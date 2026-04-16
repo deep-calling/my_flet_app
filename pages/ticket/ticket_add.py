@@ -6,7 +6,6 @@ import asyncio
 import calendar
 import datetime
 import json as _json
-import traceback
 from typing import Any
 
 import flet as ft
@@ -16,6 +15,10 @@ from pages.ticket.config import (
 )
 from services import ticket_service as svc
 from utils.app_state import app_state
+from utils.geo import get_phone_location
+from utils.logger import get_logger
+
+log = get_logger("ticket_add")
 
 # 默认坐标（厂区中心）— 与 uniapp 原版的兜底值一致
 DEFAULT_COORD = {"lng": 120.0, "lat": 30.0}
@@ -77,10 +80,13 @@ async def build_ticket_add_page(
     form_column = ft.Column(spacing=0, scroll=ft.ScrollMode.AUTO, expand=True)
     field_controls: dict[str, ft.Container] = {}
 
-    # 坐标输入状态（用户可编辑的经纬度）
-    coord_state: dict[str, str] = {
-        "lng": str(DEFAULT_COORD["lng"]),
-        "lat": str(DEFAULT_COORD["lat"]),
+    # 坐标状态：优先手机定位；失败则走 uniapp 的厂区中心 fallback
+    # 未取到前 resolved=False，提交时阻止
+    coord_state: dict[str, Any] = {
+        "lng": None,
+        "lat": None,
+        "source": "",       # gps | factory | manual
+        "resolved": False,
     }
 
     # --- 辅助：扁平化部门树 ---
@@ -208,24 +214,25 @@ async def build_ticket_add_page(
                 for key, val in data.items():
                     if val:
                         form_data[key] = val
-                # 从坐标字段反解经纬度回填到输入框
+                # 从坐标字段反解经纬度，编辑模式直接复用已有坐标
                 coord_field = config.coord_field or "zb"
                 raw = data.get(coord_field)
                 if raw:
                     try:
                         zb = _json.loads(raw) if isinstance(raw, str) else raw
                         loc = (zb.get("locations") or [{}])[0]
-                        if loc.get("lng") is not None:
-                            coord_state["lng"] = str(loc["lng"])
-                        if loc.get("lat") is not None:
-                            coord_state["lat"] = str(loc["lat"])
+                        if loc.get("lng") is not None and loc.get("lat") is not None:
+                            coord_state["lng"] = float(loc["lng"])
+                            coord_state["lat"] = float(loc["lat"])
+                            coord_state["source"] = "existing"
+                            coord_state["resolved"] = True
                     except (ValueError, TypeError, AttributeError):
-                        pass
+                        log.exception("parse existing coord failed")
                 # 编辑模式：同步加载动态数据源
                 await _reload_people_zss()
                 await _reload_qttsywbhs()
         except Exception:
-            traceback.print_exc()
+            log.exception("load existing ticket failed")
 
     # --- 字段联动：选中确认后触发 ---
     async def _on_field_change(field_key: str):
@@ -696,17 +703,21 @@ async def build_ticket_add_page(
 
     # --- 构造坐标 JSON ---
     def _build_coord_json() -> str | None:
-        """把用户输入的经纬度打包成后端要求的 JSON；校验失败返回 None"""
+        """打包后端要求的 JSON；坐标未获取到返回 None"""
+        lng = coord_state.get("lng")
+        lat = coord_state.get("lat")
+        if lng is None or lat is None:
+            return None
         try:
-            lng = float(coord_state["lng"])
-            lat = float(coord_state["lat"])
+            lng_f = float(lng)
+            lat_f = float(lat)
         except (TypeError, ValueError):
             return None
         org_code = app_state.user_info.get("orgCode") or "A01A01"
         return _json.dumps({
             "sysOrgCode": org_code,
             "height": "2",
-            "locations": [{"lng": lng, "lat": lat}],
+            "locations": [{"lng": lng_f, "lat": lat_f}],
         })
 
     # --- 提交 ---
@@ -729,11 +740,14 @@ async def build_ticket_add_page(
             ))
             return
 
-        # 坐标校验：按后端要求按类型写入对应字段名
+        # 坐标校验：必须已解析出经纬度（GPS 或 厂区中心 fallback）
         coord_field = config.coord_field or "zb"
+        if not coord_state.get("resolved"):
+            page.open(ft.SnackBar(ft.Text("定位尚未完成，请稍候或点击重新定位")))
+            return
         coord_json = _build_coord_json()
         if coord_json is None:
-            page.open(ft.SnackBar(ft.Text("坐标必须为有效数字（经度/纬度）")))
+            page.open(ft.SnackBar(ft.Text("坐标无效，请重新定位")))
             return
 
         try:
@@ -749,11 +763,16 @@ async def build_ticket_add_page(
 
             page.open(ft.SnackBar(ft.Text("保存成功" if save_only else "提交成功")))
 
+            # 首页待办/红点可能变化，清 tab 缓存
+            invalidator = getattr(app_state, "invalidate_tab_cache", None)
+            if callable(invalidator):
+                invalidator()
+
             if not save_only:
                 page.views.pop()
                 await page.update_async()
         except Exception as ex:
-            traceback.print_exc()
+            log.exception("submit ticket failed")
             page.open(ft.SnackBar(ft.Text(f"提交失败：{ex}")))
 
     # --- 组装页面 ---
@@ -800,37 +819,81 @@ async def build_ticket_add_page(
         bgcolor=ft.colors.GREY_100,
     )
 
-    # --- 坐标编辑行 ---
+    # --- 坐标显示行：单字段 + 定位状态 + 手动刷新 ---
+    coord_display = ft.Text(
+        "正在获取手机定位...",
+        size=14,
+        color=ft.colors.GREY_600,
+        expand=True,
+    )
+    coord_source_hint = ft.Text("", size=11, color=ft.colors.GREY_500)
+    coord_progress = ft.ProgressRing(width=16, height=16, stroke_width=2, visible=True)
+    coord_refresh_btn = ft.TextButton("重新定位", visible=False)
+
+    def _render_coord():
+        if coord_state["resolved"]:
+            lng = coord_state["lng"]
+            lat = coord_state["lat"]
+            coord_display.value = f"{lng:.6f}, {lat:.6f}"
+            coord_display.color = ft.colors.BLACK87
+            src = coord_state["source"]
+            coord_source_hint.value = {
+                "gps": "手机 GPS",
+                "factory": "厂区中心（GPS 不可用）",
+                "existing": "已保存坐标",
+                "manual": "手动输入",
+            }.get(src, "")
+        else:
+            coord_display.value = "正在获取手机定位..."
+            coord_display.color = ft.colors.GREY_600
+            coord_source_hint.value = ""
+        coord_progress.visible = not coord_state["resolved"]
+        coord_refresh_btn.visible = coord_state["resolved"]
+
+    async def _resolve_coord():
+        # 1) 先尝试手机 GPS（最多等 6s）
+        coord_state["resolved"] = False
+        _render_coord()
+        await _safe_update()
+
+        gps = await get_phone_location(page, timeout=6.0)
+        if gps is not None:
+            lng, lat = gps
+            coord_state.update({"lng": lng, "lat": lat, "source": "gps", "resolved": True})
+            _render_coord()
+            await _safe_update()
+            return
+
+        # 2) 兜底：uniapp 的厂区中心坐标
+        fallback = None
+        try:
+            fallback = await svc.get_factory_center_coord()
+        except Exception:
+            log.exception("factory center coord failed")
+        if fallback is not None:
+            lng, lat = fallback
+            coord_state.update({"lng": lng, "lat": lat, "source": "factory", "resolved": True})
+        else:
+            lng = float(DEFAULT_COORD["lng"])
+            lat = float(DEFAULT_COORD["lat"])
+            coord_state.update({"lng": lng, "lat": lat, "source": "factory", "resolved": True})
+            page.open(ft.SnackBar(ft.Text("未获取到定位，已使用默认坐标")))
+        _render_coord()
+        await _safe_update()
+
+    async def _safe_update():
+        try:
+            await page.update_async()
+        except Exception:
+            log.debug("swallowed exception", exc_info=True)
+
+    async def _on_refresh_coord(_e):
+        await _resolve_coord()
+
+    coord_refresh_btn.on_click = _on_refresh_coord
+
     def _build_coord_row() -> ft.Container:
-        """构建可编辑的坐标输入行（经度 + 纬度）"""
-        def _on_lng(e):
-            coord_state["lng"] = e.control.value or ""
-
-        def _on_lat(e):
-            coord_state["lat"] = e.control.value or ""
-
-        lng_tf = ft.TextField(
-            value=coord_state["lng"],
-            hint_text="经度",
-            on_change=_on_lng,
-            keyboard_type=ft.KeyboardType.NUMBER,
-            border_color=ft.colors.GREY_300,
-            focused_border_color=ft.colors.BLUE,
-            content_padding=ft.padding.symmetric(horizontal=10, vertical=8),
-            text_size=14,
-            expand=True,
-        )
-        lat_tf = ft.TextField(
-            value=coord_state["lat"],
-            hint_text="纬度",
-            on_change=_on_lat,
-            keyboard_type=ft.KeyboardType.NUMBER,
-            border_color=ft.colors.GREY_300,
-            focused_border_color=ft.colors.BLUE,
-            content_padding=ft.padding.symmetric(horizontal=10, vertical=8),
-            text_size=14,
-            expand=True,
-        )
+        _render_coord()
         return ft.Container(
             content=ft.Row(
                 controls=[
@@ -842,7 +905,18 @@ async def build_ticket_add_page(
                         spacing=2, tight=True,
                     ),
                     ft.Container(
-                        content=ft.Row([lng_tf, lat_tf], spacing=8),
+                        content=ft.Column(
+                            controls=[
+                                ft.Row(
+                                    controls=[coord_progress, coord_display, coord_refresh_btn],
+                                    spacing=8,
+                                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                ),
+                                coord_source_hint,
+                            ],
+                            spacing=2,
+                            tight=True,
+                        ),
                         expand=True,
                     ),
                 ],
@@ -859,14 +933,12 @@ async def build_ticket_add_page(
             if sq_id:
                 await _load_existing()
 
-            # 数据加载完成，渲染表单
             form_column.controls.clear()
             for f in all_fields:
                 form_column.controls.append(_build_field(f))
-            # 坐标行追加到末尾，不再用魔法下标插入
             form_column.controls.append(_build_coord_row())
         except Exception as ex:
-            traceback.print_exc()
+            log.exception("ticket add init failed")
             form_column.controls.clear()
             form_column.controls.append(
                 ft.Container(
@@ -876,10 +948,11 @@ async def build_ticket_add_page(
                 )
             )
 
-        try:
-            await page.update_async()
-        except Exception:
-            pass
+        await _safe_update()
+
+        # 编辑模式已有坐标则跳过定位，否则自动拉取手机 GPS
+        if not coord_state.get("resolved"):
+            await _resolve_coord()
 
     page.run_task(_deferred_init)
 

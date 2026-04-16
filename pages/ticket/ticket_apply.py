@@ -10,6 +10,9 @@ import flet as ft
 from components.scroll_helper import apply_no_bounce
 
 from services import ticket_service as svc
+from utils.logger import get_logger
+
+log = get_logger("ticket_apply")
 
 
 _TYPE_NAMES = {
@@ -68,7 +71,7 @@ async def build_ticket_apply_page(page: ft.Page) -> ft.View:
             if isinstance(type_result, list):
                 type_options = [{"text": r.get("text", ""), "value": r.get("value", "")} for r in type_result]
         except Exception:
-            pass
+            log.debug("swallowed exception", exc_info=True)
 
         try:
             depart_result = await svc.get_depart_list()
@@ -77,14 +80,14 @@ async def build_ticket_apply_page(page: ft.Page) -> ft.View:
                 _flatten_departs(depart_result[0], flat)
             departs = flat
         except Exception:
-            pass
+            log.debug("swallowed exception", exc_info=True)
 
         try:
             people_result = await svc.get_people_list()
             records = people_result.get("records", []) if isinstance(people_result, dict) else []
             peoples = [{"id": r["id"], "text": r.get("xm", ""), "value": r["id"]} for r in records]
         except Exception:
-            pass
+            log.debug("swallowed exception", exc_info=True)
 
     async def _load(reset: bool = False):
         if is_loading[0]:

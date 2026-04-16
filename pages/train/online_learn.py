@@ -13,6 +13,9 @@ from components.status_badge import status_badge
 from components.detail_page import detail_section
 from components.form_fields import readonly_field
 from config import app_config
+from utils.logger import get_logger
+
+log = get_logger("online_learn")
 
 
 # ============================================================
@@ -58,7 +61,7 @@ async def build_online_learn_view(page: ft.Page) -> ft.View:
                 [{"text": d.get("text", d.get("title", "")), "value": str(d.get("value", ""))} for d in ft_dict]
             )
     except Exception:
-        pass
+        log.debug("swallowed exception", exc_info=True)
     try:
         t_dict = await ts.get_type_dict()
         if isinstance(t_dict, list):
@@ -66,7 +69,7 @@ async def build_online_learn_view(page: ft.Page) -> ft.View:
                 [{"text": d.get("text", d.get("title", "")), "value": str(d.get("value", ""))} for d in t_dict]
             )
     except Exception:
-        pass
+        log.debug("swallowed exception", exc_info=True)
 
     async def _load_data(reset: bool = False):
         if is_loading[0]:

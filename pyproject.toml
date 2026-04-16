@@ -2,6 +2,11 @@
 name = "scy_flet"
 version = "1.0.0"
 description = "五位一体安全生产信息化管理平台"
+requires-python = ">=3.10"
+dependencies = [
+    "flet==0.25.2",
+    "httpx>=0.27,<0.29",
+]
 
 [tool.flet]
 org = "com.scy"

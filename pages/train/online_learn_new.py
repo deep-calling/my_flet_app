@@ -12,6 +12,9 @@ from services import train_service as ts
 from components.detail_page import detail_section
 from components.form_fields import readonly_field
 from config import app_config
+from utils.logger import get_logger
+
+log = get_logger("online_learn_new")
 
 
 # ============================================================
@@ -258,7 +261,7 @@ async def build_learn_detail_new_view(page: ft.Page, record_id: str) -> ft.View:
             try:
                 await page.update_async()
             except Exception:
-                pass
+                log.debug("swallowed exception", exc_info=True)
 
     async def _toggle_timer(e):
         if remaining_secs[0] <= 0:

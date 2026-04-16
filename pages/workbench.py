@@ -5,6 +5,9 @@ import asyncio
 import flet as ft
 
 from services.api_client import api_client
+from utils.logger import get_logger
+
+log = get_logger("workbench")
 
 
 def _build_stat_card(label: str, value: str):
@@ -175,7 +178,7 @@ async def build_workbench_content(page: ft.Page) -> ft.Control:
                     alignment=ft.MainAxisAlignment.CENTER,
                 )
     except Exception:
-        pass
+        log.debug("swallowed exception", exc_info=True)
 
     # --- 顶部标题 ---
     top_bar = ft.Container(

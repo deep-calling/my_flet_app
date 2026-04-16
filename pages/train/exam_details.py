@@ -9,6 +9,9 @@ from components.scroll_helper import apply_no_bounce
 from services import train_service as ts
 from components.detail_page import detail_section
 from components.form_fields import readonly_field
+from utils.logger import get_logger
+
+log = get_logger("exam_details")
 
 
 # ============================================================
@@ -26,7 +29,7 @@ async def build_exam_details_view(
             exam_id, result_id=result_id if exam_type == "1" else ""
         ) or {}
     except Exception:
-        pass
+        log.debug("swallowed exception", exc_info=True)
 
     d = data[0]
     exam_info = d.get("exam", {})

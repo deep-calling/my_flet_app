@@ -12,6 +12,9 @@ from components.scroll_helper import apply_no_bounce
 from pages.ticket.config import TICKET_TYPES, get_config_by_type_value
 from services import ticket_service as svc
 from utils.app_state import app_state
+from utils.logger import get_logger
+
+log = get_logger("ticket_list")
 
 
 # 列表 tab 定义
@@ -101,7 +104,7 @@ async def build_ticket_list_page(page: ft.Page) -> ft.View:
         try:
             await page.update_async()
         except Exception:
-            pass
+            log.debug("swallowed exception", exc_info=True)
 
         if reset:
             page_no[0] = 1
@@ -155,14 +158,14 @@ async def build_ticket_list_page(page: ft.Page) -> ft.View:
             try:
                 page.snack_bar = ft.SnackBar(ft.Text(f"加载失败：{ex}"), open=True)
             except Exception:
-                pass
+                log.debug("swallowed exception", exc_info=True)
 
         is_loading[0] = False
         loading_ring.visible = False
         try:
             await page.update_async()
         except Exception:
-            pass
+            log.debug("swallowed exception", exc_info=True)
 
     async def _on_load_more(e):
         page_no[0] += 1
@@ -281,7 +284,7 @@ async def build_ticket_list_page(page: ft.Page) -> ft.View:
             if isinstance(result, list):
                 type_options = [{"text": r.get("text", ""), "value": r.get("value", "")} for r in result]
         except Exception:
-            pass
+            log.debug("swallowed exception", exc_info=True)
 
     # --- 新增按钮 ---
     async def _on_add(e):

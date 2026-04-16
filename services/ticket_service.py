@@ -73,6 +73,35 @@ async def get_table_data(params: dict) -> Any:
     )
 
 
+async def get_factory_center_coord() -> tuple[float, float] | None:
+    """uniapp 兜底策略：从 tb_base_gis_children_model_info 读取厂区初始坐标。
+
+    返回 (lng, lat)；未配置或接口异常返回 None。
+    """
+    try:
+        result = await get_table_data({
+            "table": "tb_base_gis_children_model_info",
+            "columns": "longitude lng, latitude lat",
+            "limits": "del_flag = 0 and audit_status = 2 ORDER BY create_time LIMIT 1",
+        })
+    except Exception:
+        return None
+    # 后端返回可能是 dict、list[dict]，也可能直接是 {"lng": .., "lat": ..}
+    row: dict = {}
+    if isinstance(result, list) and result:
+        row = result[0] if isinstance(result[0], dict) else {}
+    elif isinstance(result, dict):
+        row = result
+    lng = row.get("lng") if row else None
+    lat = row.get("lat") if row else None
+    if lng is None or lat is None:
+        return None
+    try:
+        return float(lng), float(lat)
+    except (TypeError, ValueError):
+        return None
+
+
 # ============================================================
 # 作业票 CRUD（根据类型前缀自动拼接）
 # ============================================================

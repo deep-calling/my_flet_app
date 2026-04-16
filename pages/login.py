@@ -1,20 +1,23 @@
 """登录页 — 五位一体安全生产信息化管理平台"""
 
-import json
-
 import flet as ft
 
 from config import app_config
 from services.auth_service import login
 from utils.app_state import app_state
+from utils.crypto import decrypt, encrypt, secret_material
+from utils.logger import get_logger
+
+log = get_logger("login")
 
 
 async def build_login_view(page: ft.Page) -> ft.View:
     """构建登录页视图"""
 
-    # 从 client_storage 读取记住的账号密码
+    # 从 client_storage 读取记住的账号密码（密码密文存储）
     saved_username = await page.client_storage.get_async("username") or ""
-    saved_password = await page.client_storage.get_async("password") or ""
+    saved_password_enc = await page.client_storage.get_async("password_enc") or ""
+    saved_password = decrypt(saved_password_enc, secret_material()) if saved_password_enc else ""
     saved_flag = await page.client_storage.get_async("remember_flag") or "1"
     remember = saved_flag == "1"
 
@@ -54,11 +57,14 @@ async def build_login_view(page: ft.Page) -> ft.View:
     async def on_remember_change(e):
         if not remember_cb.value:
             await page.client_storage.remove_async("username")
-            await page.client_storage.remove_async("password")
+            await page.client_storage.remove_async("password")      # 清理旧的明文
+            await page.client_storage.remove_async("password_enc")
             await page.client_storage.set_async("remember_flag", "0")
         else:
-            await page.client_storage.set_async("username", username_field.value)
-            await page.client_storage.set_async("password", password_field.value)
+            pwd_enc = encrypt(password_field.value or "", secret_material())
+            await page.client_storage.set_async("username", username_field.value or "")
+            await page.client_storage.set_async("password_enc", pwd_enc)
+            await page.client_storage.remove_async("password")
             await page.client_storage.set_async("remember_flag", "1")
 
     remember_cb.on_change = on_remember_change
@@ -107,10 +113,12 @@ async def build_login_view(page: ft.Page) -> ft.View:
         await page.update_async()
 
         try:
-            # 记住密码
+            # 记住密码（密文存储）
             if remember_cb.value:
+                pwd_enc = encrypt(password, secret_material())
                 await page.client_storage.set_async("username", username)
-                await page.client_storage.set_async("password", password)
+                await page.client_storage.set_async("password_enc", pwd_enc)
+                await page.client_storage.remove_async("password")
                 await page.client_storage.set_async("remember_flag", "1")
 
             result = await login(username, password)
@@ -124,6 +132,7 @@ async def build_login_view(page: ft.Page) -> ft.View:
             await page.go_async("/home")
 
         except Exception as ex:
+            log.exception("login failed")
             page.snack_bar = ft.SnackBar(
                 ft.Text(str(ex) or "服务器报错，请重试！"),
                 open=True,

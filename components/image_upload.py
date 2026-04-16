@@ -9,6 +9,23 @@ import flet as ft
 from services.api_client import api_client
 from config import app_config
 from utils.app_state import app_state
+from utils.logger import get_logger
+
+log = get_logger("image_upload")
+
+
+def _acquire_file_picker(
+    page: ft.Page,
+    on_result: Callable[[ft.FilePickerResultEvent], Awaitable[None]],
+) -> ft.FilePicker:
+    """复用 Page 级别的 FilePicker，避免每个组件都往 overlay 塞一个、导致泄漏。"""
+    picker: ft.FilePicker | None = getattr(page, "_shared_file_picker", None)
+    if picker is None:
+        picker = ft.FilePicker()
+        page.overlay.append(picker)
+        page._shared_file_picker = picker  # type: ignore[attr-defined]
+    picker.on_result = on_result
+    return picker
 
 
 class ImageUpload(ft.Container):
@@ -37,9 +54,7 @@ class ImageUpload(ft.Container):
         self._disabled = disabled
         self._uploaded_paths: list[str] = [p for p in (initial_images or []) if p]
 
-        self._file_picker = ft.FilePicker(on_result=self._on_file_picked)
-        if self._file_picker not in self._page.overlay:
-            self._page.overlay.append(self._file_picker)
+        self._file_picker = _acquire_file_picker(self._page, self._on_file_picked)
 
         self._images_row = ft.Row(
             wrap=True,
@@ -131,6 +146,8 @@ class ImageUpload(ft.Container):
 
     def _build_add_button(self) -> ft.Control:
         def on_add(_e):
+            # 点击时重新绑定回调，避免多个 ImageUpload 共享 picker 时回调被覆盖
+            self._file_picker.on_result = self._on_file_picked
             self._file_picker.pick_files(
                 allow_multiple=False,
                 allowed_extensions=["jpg", "jpeg", "png", "gif", "bmp", "webp"],
@@ -190,4 +207,5 @@ class ImageUpload(ft.Container):
             if self._on_upload_success:
                 await self._on_upload_success(file_path)
         except Exception as ex:
+            log.exception("upload failed")
             self._toast(f"上传失败：{ex}")

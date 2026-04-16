@@ -15,6 +15,9 @@ from components.form_fields import (
 from components.image_upload import ImageUpload
 from components.status_badge import status_badge
 from utils.app_state import app_state
+from utils.logger import get_logger
+
+log = get_logger("rectificat")
 
 
 # ============================================================
@@ -240,12 +243,12 @@ async def build_rectificat_detail_view(
                 try:
                     can_zg = bool(await ts.check_zgr({"id": record_id}))
                 except Exception:
-                    pass
+                    log.debug("swallowed exception", exc_info=True)
             elif rec_status == "4":
                 try:
                     can_ys = bool(await ts.check_ysr({"id": record_id}))
                 except Exception:
-                    pass
+                    log.debug("swallowed exception", exc_info=True)
 
             # 3. 构建内容
             content_ctrl = _build_content(data)
@@ -489,7 +492,7 @@ async def build_rectificat_add_view(
                         "value": u.get("username", u.get("id", "")),
                     })
         except Exception:
-            pass
+            log.debug("swallowed exception", exc_info=True)
 
     await _load_options()
 
@@ -513,7 +516,7 @@ async def build_rectificat_add_view(
                             "value": m.get("id", ""),
                         })
             except Exception:
-                pass
+                log.debug("swallowed exception", exc_info=True)
         # 刷新措施下拉
         measure_dd.options = [ft.dropdown.Option(key=o["value"], text=o["text"]) for o in risk_measures]
         measure_dd.value = None
