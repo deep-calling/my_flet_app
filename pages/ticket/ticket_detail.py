@@ -1013,7 +1013,7 @@ async def build_ticket_detail_page(
     async def _go_measure_sign(item: dict, sign_mode: str = "assessment"):
         """跳转安全措施签名页"""
         import json
-        page.go(f"/ticket/sign?mode={sign_mode}&info={json.dumps(item)}&type={type_value}")
+        await page.go_async(f"/ticket/sign?mode={sign_mode}&info={json.dumps(item)}&type={type_value}")
 
     # --- 安全交底 ---
     async def _build_clarification_section() -> ft.Control:
@@ -1098,7 +1098,7 @@ async def build_ticket_detail_page(
 
     async def _go_confess_sign(item: dict):
         import json
-        page.go(f"/ticket/sign?mode=confess&info={json.dumps(item)}&type={type_value}")
+        await page.go_async(f"/ticket/sign?mode=confess&info={json.dumps(item)}&type={type_value}")
 
     # --- 作业审批 ---
     async def _build_approval_section() -> ft.Control:
@@ -1341,7 +1341,7 @@ async def build_ticket_detail_page(
 
     async def _go_approve_sign(item: dict):
         import json
-        page.go(f"/ticket/sign?mode=approve&info={json.dumps(item)}&type={type_value}")
+        await page.go_async(f"/ticket/sign?mode=approve&info={json.dumps(item)}&type={type_value}")
 
     # --- 作业验收 ---
     async def _build_acceptance_section() -> ft.Control:
@@ -1442,7 +1442,7 @@ async def build_ticket_detail_page(
 
     async def _go_acceptance_sign(item: dict):
         import json
-        page.go(f"/ticket/sign?mode=acceptance&info={json.dumps(item)}&type={type_value}")
+        await page.go_async(f"/ticket/sign?mode=acceptance&info={json.dumps(item)}&type={type_value}")
 
     # --- 签名页返回后刷新 ---
     async def _on_sign_return():

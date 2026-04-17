@@ -16,10 +16,14 @@ _GEO_ATTR = "_shared_geolocator"
 
 
 def _is_mobile(page: ft.Page) -> bool:
-    """只有手机端（Android / iOS）才创建 Geolocator；
-    其他平台 Flutter 客户端不识别该控件，会渲染成 "Unknown control: geolocator"。
+    """只有原生手机端（Android / iOS）才创建 Geolocator；
+    Web 模式和桌面端的 Flutter 客户端不识别该控件，
+    会渲染成 "Unknown control: geolocator"。
     """
     try:
+        # flet run 默认以 Web 模式启动，Web 端不支持原生 Geolocator 控件
+        if getattr(page, "web", False):
+            return False
         platform = getattr(page, "platform", None)
         if platform is None:
             return False
@@ -29,8 +33,23 @@ def _is_mobile(page: ft.Page) -> bool:
         return False
 
 
+def _remove_geolocator(page: ft.Page):
+    """从 overlay 移除 Geolocator 并标记为不可用，防止 'Unknown control' 残留。"""
+    geo = getattr(page, _GEO_ATTR, None)
+    if geo is not None:
+        try:
+            page.overlay.remove(geo)
+        except ValueError:
+            pass
+        setattr(page, _GEO_ATTR, None)
+    setattr(page, "_geo_unsupported", True)
+
+
 def _acquire_geolocator(page: ft.Page) -> Optional[ft.Geolocator]:
     if not _is_mobile(page):
+        return None
+    # 之前尝试过且失败，不再重试
+    if getattr(page, "_geo_unsupported", False):
         return None
     geo: Optional[ft.Geolocator] = getattr(page, _GEO_ATTR, None)
     if geo is None:
@@ -40,6 +59,7 @@ def _acquire_geolocator(page: ft.Page) -> Optional[ft.Geolocator]:
             setattr(page, _GEO_ATTR, geo)
         except Exception:
             log.exception("create Geolocator failed")
+            setattr(page, "_geo_unsupported", True)
             return None
     return geo
 
@@ -97,5 +117,7 @@ async def get_phone_location(
         log.warning("phone GPS timed out after %.1fs", timeout)
         return None
     except Exception:
-        log.exception("phone GPS failed")
+        log.exception("phone GPS failed — removing Geolocator from overlay")
+        # 移除不受支持的 Geolocator 控件，避免 "Unknown control" 残留在界面上
+        _remove_geolocator(page)
         return None

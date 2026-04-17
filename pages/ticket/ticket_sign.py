@@ -20,7 +20,6 @@ from services import ticket_service as svc
 from components.sign_pad import SignPad
 from components.image_upload import ImageUpload
 from utils.logger import get_logger
-from utils.ui import cleanup_overlays
 
 log = get_logger("ticket_sign")
 
@@ -349,16 +348,16 @@ async def build_ticket_sign_page(
                 params["photo"] = form_data.get("photo", "")
                 await svc.sign_ticket(config.api_prefix, params)
 
-            page.open(ft.SnackBar(ft.Text("提交成功")))
-            await page.update_async()
+            # 先返回上一页，再通知详情页刷新，最后在当前页面显示提示
+            # 注意：不调用 cleanup_overlays，否则会误删详情页的 BottomSheet
             if len(page.views) > 1:
-                cleanup_overlays(page)
                 page.views.pop()
                 await page.update_async()
-            # 通知详情页刷新数据并重新打开对应步骤面板
             refresh = getattr(page, "_ticket_detail_refresh", None)
             if refresh:
                 await refresh()
+            page.open(ft.SnackBar(ft.Text("提交成功")))
+            await page.update_async()
 
         except Exception as ex:
             page.open(ft.SnackBar(ft.Text(f"提交失败：{ex}")))
@@ -394,16 +393,15 @@ async def build_ticket_sign_page(
                     )
                     if dlg_ref:
                         dlg_ref[0].open = False
-                    page.open(ft.SnackBar(ft.Text("转办成功")))
-                    await page.update_async()
+                        await page.update_async()
                     if len(page.views) > 1:
-                        cleanup_overlays(page)
                         page.views.pop()
                         await page.update_async()
-                    # 通知详情页刷新
                     refresh = getattr(page, "_ticket_detail_refresh", None)
                     if refresh:
                         await refresh()
+                    page.open(ft.SnackBar(ft.Text("转办成功")))
+                    await page.update_async()
                 except Exception as ex:
                     page.open(ft.SnackBar(ft.Text(f"转办失败：{ex}")))
                     await page.update_async()
